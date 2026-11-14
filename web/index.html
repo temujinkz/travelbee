@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Travelbee</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Hanken+Grotesk:wght@900&display=swap" rel="stylesheet">
+  <style>
+    /* Tokens follow the Glaze system (design.how/systems/glaze): ink and paper, greys as ink at alphas,
+       glass only on the one button a group leads with, no shadows, pill controls. */
+    :root {
+      --page: #ffffff;
+      --paper: #ffffff;
+      --shell: #f1f1f0;
+      --text-1: rgb(5 5 5 / .80);
+      --text-2: rgb(5 5 5 / .60);
+      --text-3: rgb(5 5 5 / .45);
+      --line-faint: rgb(5 5 5 / .06);
+      --line: rgb(5 5 5 / .10);
+      --line-control: rgb(5 5 5 / .15);
+      --line-focus: rgb(5 5 5 / .32);
+      --hover: rgb(5 5 5 / .05);
+      --fail: #e35e49;
+
+      --glass-ink-base: rgb(0 0 0 / .66);
+      --glass-ink-text: rgb(255 255 255 / .90);
+      --glass-ink-ring: rgb(0 0 0 / .56);
+      --glass-green-base: rgb(6 86 40 / .88);
+      --glass-green-text: rgb(255 255 255 / .90);
+      --glass-green-ring: rgb(4 64 28 / .56);
+      --glass-sheen: .12;
+      --glass-sheen-hover: .16;
+      --glass-core: .32;
+      --glass-core-held: .44;
+      --glass-rim: .24;
+      --glass-glaze: .06;
+      --glass-gloss: .28;
+      --glass-blur: 6px;
+      --gloss-inset: .28;
+      --gloss-top: 1.5px;
+      --gloss-height: 44%;
+      --scale-press-glass: .99;
+      --ease-out: cubic-bezier(.2, .8, .2, 1);
+
+      --radius-shell: 14px;
+      --radius-panel: 11px;
+      --radius-pill: 999px;
+      --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+      background: var(--page);
+      color: var(--text-1);
+      font: 400 14px/1.5 var(--font-sans);
+    }
+    main { width: 100%; max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 40px; }
+    body.form-view main { max-width: 480px; gap: 24px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* ---------- title (halftone, adapted from the ARC landing page) ---------- */
+    h1.brand { margin: 0; width: 100%; }
+    .halftone { display: block; width: 100%; height: clamp(150px, 44vw, 250px); }
+    body.form-view .halftone { height: clamp(84px, 24vw, 130px); }
+
+    /* ---------- glass: the Glaze press recipe, one glass button per group ---------- */
+    .glass {
+      --gl-base: var(--glass-ink-base);
+      --gl-text: var(--glass-ink-text);
+      --gl-ring: var(--glass-ink-ring);
+      --gl-sheen-now: var(--glass-sheen);
+      --gl-core-now: var(--glass-core);
+      --gl-rim-a: #ffffff;
+      --gl-rim-b: #999999;
+      --glass-h: 52px;
+      position: relative;
+      isolation: isolate;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      height: var(--glass-h);
+      padding: 0 28px;
+      border: 0;
+      border-radius: var(--radius-pill);
+      font: 500 17px/1.35 var(--font-sans);
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      color: var(--gl-text);
+      background-color: var(--gl-base);
+      background-image:
+        radial-gradient(65.62% 65.62% at 50% 50%, rgb(0 0 0 / var(--gl-core-now)), transparent),
+        linear-gradient(rgb(255 255 255 / var(--gl-sheen-now)), transparent),
+        linear-gradient(rgb(255 255 255 / var(--glass-glaze)) 0%, rgb(255 255 255 / calc(var(--glass-glaze) * .4)) 50%, transparent 50%);
+      box-shadow:
+        inset 0 -12px 16px 0 rgb(255 255 255 / .06),
+        inset 0 4px 16px 0 rgb(255 255 255 / .16),
+        inset 0 .75px .25px 0 rgb(255 255 255 / .12),
+        inset 0 .25px .25px 0 rgb(255 255 255 / .32),
+        0 0 0 .75px var(--gl-ring);
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      backdrop-filter: blur(var(--glass-blur));
+      transition: scale 200ms var(--ease-out), color 200ms var(--ease-out);
+    }
+    .glass-green { --gl-base: var(--glass-green-base); --gl-text: var(--glass-green-text); --gl-ring: var(--glass-green-ring); }
+    .glass-sm { --glass-h: 40px; padding: 0 22px; font-size: 14px; }
+    /* rim: 1px banded gradient masked to the edge */
+    .glass::before {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      pointer-events: none;
+      inset: 0;
+      padding: 1px;
+      border-radius: inherit;
+      background-image: linear-gradient(var(--gl-rim-a) 0%, var(--gl-rim-b) 55%, var(--gl-rim-a) 80%, var(--gl-rim-b) 95%);
+      opacity: var(--glass-rim);
+      -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    }
+    /* catch-light: a bright pill across the top half */
+    .glass::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      pointer-events: none;
+      inset-inline: calc(var(--glass-h) * var(--gloss-inset));
+      top: var(--gloss-top);
+      height: var(--gloss-height);
+      border-radius: var(--radius-pill);
+      background-image: linear-gradient(rgb(255 255 255 / var(--glass-gloss)), transparent);
+      transition: opacity 200ms var(--ease-out);
+    }
+    @media (hover: hover) { .glass:hover { --gl-sheen-now: var(--glass-sheen-hover); } }
+    .glass:active { --gl-sheen-now: 0; --gl-core-now: var(--glass-core-held); scale: var(--scale-press-glass); transition-duration: 50ms; }
+    .glass:active::after { opacity: .6; }
+    .glass svg { width: 22px; height: 22px; flex: none; }
+    .glass-sm svg { width: 16px; height: 16px; }
+
+    :where(button, input, textarea):focus-visible { outline: 2px solid var(--text-1); outline-offset: 2px; }
+
+    /* ---------- ghost icon buttons ---------- */
+    .actions { display: flex; gap: 4px; min-height: 40px; margin-top: -16px; }
+    .ghost {
+      display: grid; place-items: center;
+      width: 40px; height: 40px;
+      border: 0; border-radius: var(--radius-pill);
+      background: transparent; color: var(--text-2);
+      cursor: pointer;
+      transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out), scale 120ms var(--ease-out);
+    }
+    .ghost:hover { background: var(--hover); color: var(--text-1); }
+    .ghost:active { scale: .97; }
+    .ghost svg { width: 20px; height: 20px; }
+
+    /* ---------- questionnaire: shell card, panel, footer ---------- */
+    .shell { width: 100%; background: var(--shell); border-radius: var(--radius-shell); padding: 3px; }
+    .panel { background: var(--paper); border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--line-faint); padding: 20px 20px 8px; }
+    .shell-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px; padding-inline-start: 14px; }
+    .shell-foot .meta { margin-inline-end: auto; font: 400 12px/1.35 var(--font-sans); color: var(--text-2); }
+    .shell-foot .meta code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; }
+    h2.title { margin: 0 0 4px; font: 500 28px/1.2 var(--font-sans); letter-spacing: -.01em; }
+    p.desc { margin: 0 0 20px; color: var(--text-2); font-size: 14px; }
+
+    .field { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
+    .field > label, .field > legend { display: block; padding: 0; margin-bottom: 8px; font: 500 13px/1.35 var(--font-sans); color: var(--text-1); }
+    .field .hint { display: block; margin-top: 6px; font-size: 12px; color: var(--text-2); }
+    .field .error { display: block; margin-top: 6px; font-size: 12px; color: var(--fail); }
+    .input {
+      width: 100%; height: 36px; padding: 0 14px;
+      border: 0; border-radius: var(--radius-pill);
+      background: var(--paper); color: var(--text-1);
+      font: 400 14px/1.35 var(--font-sans);
+      box-shadow: 0 0 0 1px var(--line-control);
+      transition: box-shadow 120ms var(--ease-out);
+    }
+    .input::placeholder { color: var(--text-3); }
+    .input:hover { box-shadow: 0 0 0 1px var(--line-focus); }
+    .input:focus { box-shadow: 0 0 0 1px var(--line-focus); }
+    .input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--fail); }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { position: relative; }
+    .chip input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+    .chip span {
+      display: inline-flex; align-items: center; height: 32px; padding: 0 14px;
+      border-radius: var(--radius-pill);
+      font: 500 13px/1.35 var(--font-sans); color: var(--text-1);
+      box-shadow: 0 0 0 1px var(--line-control);
+      background: var(--paper);
+      transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+    }
+    .chip:hover span { background: var(--hover); }
+    .chip input:checked + span { box-shadow: 0 0 0 1.5px var(--text-1); background: var(--hover); }
+    .chip input:focus-visible + span { outline: 2px solid var(--text-1); outline-offset: 2px; }
+
+    .done { padding: 12px 0 20px; }
+    .done h2 { margin: 0 0 6px; font: 500 20px/1.3 var(--font-sans); }
+    .done p { margin: 0; color: var(--text-2); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .glass, .ghost, .input, .chip span { transition: none; }
+      .glass:active, .ghost:active { scale: 1; }
+    }
+    @media (forced-colors: active) {
+      .glass { background-image: none; box-shadow: none; border: 1px solid ButtonText; }
+      .glass::before, .glass::after { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 class="brand"><span class="sr-only">Travelbee</span><canvas id="title" class="halftone" aria-hidden="true"></canvas></h1>
+
+    <!-- View 1: create the shareable link -->
+    <section id="view-create" style="display:contents">
+      <button id="generate" class="glass glass-green" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.43"/>
+          <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07l1.33-1.33"/>
+        </svg>
+        <span>Generate a travel link</span>
+      </button>
+
+      <div id="actions" class="actions" hidden>
+        <button id="copy" class="ghost" type="button" aria-label="Copy link">
+          <svg id="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="12" height="12" rx="3"/>
+            <path d="M5 15V6a3 3 0 0 1 3-3h9"/>
+          </svg>
+        </button>
+        <button id="share" class="ghost" type="button" aria-label="Share link">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 15V3"/>
+            <path d="m7.5 7.5 4.5-4.5 4.5 4.5"/>
+            <path d="M5 12v6a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-6"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- View 2: the questionnaire a traveler sees when they open the link -->
+    <section id="view-form" hidden style="width:100%">
+      <form id="form" novalidate>
+        <div class="shell">
+          <div class="panel" id="panel">
+            <h2 class="title">Tell us how you travel</h2>
+            <p class="desc">A few quick questions so the plan fits everyone in your group.</p>
+
+            <div class="field">
+              <label for="name">Name</label>
+              <input id="name" class="input" name="name" type="text" autocomplete="given-name" placeholder="Your first name" required aria-describedby="name-error">
+              <span id="name-error" class="error" hidden>Add your name so the group knows who you are.</span>
+            </div>
+
+            <div class="field">
+              <label for="home_city">Home city</label>
+              <input id="home_city" class="input" name="home_city" type="text" autocomplete="address-level2" placeholder="Where are you flying from?">
+            </div>
+
+            <div class="field">
+              <label for="budget_per_night">Budget per night</label>
+              <input id="budget_per_night" class="input" name="budget_per_night" type="number" inputmode="numeric" min="0" step="5" placeholder="150" aria-describedby="budget-hint">
+              <span id="budget-hint" class="hint">In US dollars, for your own bed.</span>
+            </div>
+
+            <fieldset class="field"><legend>Pace</legend><div class="chips" data-name="pace" data-type="radio"></div></fieldset>
+            <fieldset class="field"><legend>Spending style</legend><div class="chips" data-name="budget" data-type="radio"></div></fieldset>
+            <fieldset class="field"><legend>Food</legend><div class="chips" data-name="food" data-type="radio"></div></fieldset>
+            <fieldset class="field"><legend>Activities you want</legend><div class="chips" data-name="activities" data-type="checkbox"></div></fieldset>
+            <fieldset class="field"><legend>Where you stay</legend><div class="chips" data-name="lodging" data-type="radio"></div></fieldset>
+            <fieldset class="field"><legend>Dealbreakers</legend><div class="chips" data-name="dealbreakers" data-type="checkbox"></div></fieldset>
+          </div>
+          <div class="shell-foot">
+            <span class="meta">Trip <code id="trip-id"></code></span>
+            <button class="glass glass-sm" type="submit"><span>Send</span></button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <div id="status" class="sr-only" role="status" aria-live="polite"></div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const tripParam = new URLSearchParams(location.search).get("trip");
+
+    /* ---------------- halftone title (adapted from the ARC landing page) ---------------- */
+    (() => {
+      const canvas = $("title");
+      const ctx = canvas.getContext("2d");
+      const WORD = "Travelbee";
+      const RGB = "214, 112, 0";   // deep honey, strong contrast on white
+      const FONT = '900 100px "Hanken Grotesk", system-ui, sans-serif';
+      const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let CELL = 8, cols = 0, rows = 0, cw = 0, chh = 0, ox = 0, oy = 0;
+      let field = new Float32Array(0);
+      let raf = 0, start = 0, visible = true;
+      let tx = -9999, ty = -9999, sx = -9999, sy = -9999;
+
+      async function build() {
+        try { await document.fonts.load(FONT, WORD); } catch {}
+        const rect = canvas.getBoundingClientRect();
+        cw = rect.width; chh = rect.height;
+        if (!cw || !chh) return;
+        CELL = clamp(cw / 80, 4, 8);
+        cols = Math.floor(cw / CELL); rows = Math.floor(chh / CELL);
+        ox = (cw - cols * CELL) / 2; oy = (chh - rows * CELL) / 2;
+        const dpr = Math.min(devicePixelRatio, 2);
+        canvas.width = cw * dpr; canvas.height = chh * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const off = document.createElement("canvas");
+        off.width = cols; off.height = rows;
+        const o = off.getContext("2d", { willReadFrequently: true });
+        let size = (rows * 0.74) / 0.7;
+        o.font = FONT.replace("100px", size + "px");
+        const w = o.measureText(WORD).width;
+        if (w > cols * 0.98) { size *= (cols * 0.98) / w; o.font = FONT.replace("100px", size + "px"); }
+        o.textAlign = "center"; o.fillStyle = "#000";
+        o.fillText(WORD, cols / 2, rows / 2 + (size * 0.7) / 2);
+        const px = o.getImageData(0, 0, cols, rows).data;
+
+        const core = new Float32Array(cols * rows);
+        for (let i = 0; i < core.length; i++) core[i] = px[i * 4 + 3] / 255;
+        const blur = (src) => {
+          const dst = new Float32Array(src.length);
+          for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+            let s = 0, n = 0;
+            for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+              const rr = r + dr, cc = c + dc;
+              if (rr >= 0 && rr < rows && cc >= 0 && cc < cols) { s += src[rr * cols + cc]; n++; }
+            }
+            dst[r * cols + c] = s / n;
+          }
+          return dst;
+        };
+        const halo = blur(blur(core));
+        field = new Float32Array(core.length);
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+          const i = r * cols + c;
+          const shade = 0.9 + 0.1 * (r / rows);
+          field[i] = Math.max(core[i] * shade, halo[i] * 0.35);
+        }
+        start = performance.now();
+        kick();
+      }
+
+      function draw(now) {
+        ctx.clearRect(0, 0, cw, chh);
+        sx += (tx - sx) * 0.16; sy += (ty - sy) * 0.16;
+        let busy = false;
+        const bx = ((now / 5000) % 1) * (cols + 30) - 15;
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+          const v = field[r * cols + c];
+          if (v < 0.06) continue;
+          let x = ox + (c + 0.5) * CELL, y = oy + (r + 0.5) * CELL;
+          const p = still ? 1 : clamp((now - start - c * 9 - r * 5) / 560);
+          if (p <= 0) { busy = true; continue; }
+          if (p < 1) busy = true;
+          const e = 1 - Math.pow(1 - p, 4);
+          const dx = x - sx, dy = y - sy, d2 = dx * dx + dy * dy;
+          const g = d2 < 160 * 160 ? Math.exp(-d2 / (90 * 90)) : 0;
+          if (g > 0.01) { const d = Math.sqrt(d2) || 1; x += (dx / d) * g * 5; y += (dy / d) * g * 5; busy = true; }
+          const amb = still ? 0 : 0.26 * Math.sin(now * 0.0022 + c * 0.26 - r * 0.18) + 0.14 * Math.sin(now * 0.0013 - c * 0.12 + r * 0.34) + 0.08 * Math.sin(now * 0.0035 + (c + r) * 0.5);
+          const sheen = still ? 0 : 0.5 * Math.exp(-(((c - bx) / 6) ** 2));
+          const fx = still ? 0 : Math.sin(now * 0.0014 + r * 0.4) * 1.7, fy = still ? 0 : Math.cos(now * 0.0017 + c * 0.3) * 1.7;
+          const rad = Math.min(CELL * 0.74, v * CELL * 0.64 * (0.6 + 0.4 * e) * (1 + 0.5 * g + amb * 0.6 + sheen));
+          ctx.fillStyle = "rgba(" + RGB + ", " + e + ")";
+          ctx.beginPath(); ctx.arc(x + fx, y + fy, rad, 0, Math.PI * 2); ctx.fill();
+        }
+        if (Math.abs(tx - sx) > 0.5 || Math.abs(ty - sy) > 0.5) busy = true;
+        if (!still && visible) busy = true;
+        raf = busy ? requestAnimationFrame(draw) : 0;
+      }
+      function kick() { if (!raf && field.length) raf = requestAnimationFrame(draw); }
+
+      new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) kick(); }).observe(canvas);
+      new ResizeObserver(() => { cancelAnimationFrame(raf); raf = 0; build(); }).observe(canvas);
+      if (!still) addEventListener("pointermove", (e) => {
+        const b = canvas.getBoundingClientRect();
+        tx = e.clientX - b.left; ty = e.clientY - b.top;
+        if (sx < -9000) { sx = tx; sy = ty; }
+        kick();
+      });
+    })();
+
+    /* ---------------- view 1: generate, copy, share ---------------- */
+    let currentLink = "";
+    const CHECK = '<polyline points="4 12.5 9.5 18 20 6.5"/>';
+    const COPY = '<rect x="9" y="9" width="12" height="12" rx="3"/><path d="M5 15V6a3 3 0 0 1 3-3h9"/>';
+
+    function makeTripId() {
+      const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"; // no look-alike characters
+      const bytes = crypto.getRandomValues(new Uint8Array(8));
+      return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+    }
+
+    $("generate").addEventListener("click", () => {
+      const url = new URL(location.href);
+      url.search = ""; url.hash = "";
+      url.searchParams.set("trip", makeTripId());
+      currentLink = url.toString();
+      $("actions").hidden = false;
+      $("copy-icon").innerHTML = COPY;
+      $("share").style.display = navigator.share ? "" : "none";
+      $("status").textContent = "Travel link ready. Use copy or share.";
+    });
+
+    $("copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(currentLink); }
+      catch {
+        const t = document.createElement("textarea");
+        t.value = currentLink; document.body.appendChild(t); t.select();
+        document.execCommand("copy"); t.remove();
+      }
+      $("copy-icon").innerHTML = CHECK;
+      $("status").textContent = "Link copied";
+      setTimeout(() => { $("copy-icon").innerHTML = COPY; }, 1600);
+    });
+
+    $("share").addEventListener("click", () => {
+      navigator.share({ title: "Join our trip on Travelbee", url: currentLink }).catch(() => {});
+    });
+
+    /* ---------------- view 2: questionnaire ---------------- */
+    // Values for tag-based questions use the shared tag list from TEAM_SPLIT.md
+    // (beach, hostel, red-eye, nonstop, long-drive, airboat, snorkel, fine-dining).
+    // If that list changes, change these arrays too, or vetoes will silently never fire.
+    const QUESTIONS = {
+      pace:         [["relaxed", "Relaxed"], ["balanced", "Balanced"], ["packed", "Packed"]],
+      budget:       [["tight", "Keep it cheap"], ["comfortable", "Comfortable"], ["splurge", "Splurge"]],
+      food:         [["casual", "Casual and local"], ["fine-dining", "Fine dining"]],
+      activities:   [["beach", "Beach"], ["snorkel", "Snorkeling"], ["airboat", "Airboat"]],
+      lodging:      [["hostel", "Hostel"], ["hotel", "Hotel"], ["rental", "Rental"]],
+      dealbreakers: [["red-eye", "Red-eye flights"], ["long-drive", "Long drives"], ["hostel", "Hostels"]],
+    };
+
+    function renderChips() {
+      document.querySelectorAll(".chips").forEach((box) => {
+        const name = box.dataset.name, type = box.dataset.type;
+        QUESTIONS[name].forEach(([value, label]) => {
+          const l = document.createElement("label");
+          l.className = "chip";
+          const i = document.createElement("input");
+          i.type = type; i.name = name; i.value = value;
+          const s = document.createElement("span");
+          s.textContent = label;
+          l.append(i, s);
+          box.appendChild(l);
+        });
+      });
+    }
+
+    function showForm() {
+      document.body.classList.add("form-view");
+      $("view-create").hidden = true;
+      $("view-form").hidden = false;
+      $("trip-id").textContent = tripParam;
+      renderChips();
+    }
+
+    $("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const name = f.name.value.trim();
+      const err = $("name-error");
+      if (!name) {
+        err.hidden = false;
+        $("name").setAttribute("aria-invalid", "true");
+        $("name").focus();
+        return;
+      }
+      err.hidden = true;
+      $("name").removeAttribute("aria-invalid");
+
+      const one = (n) => (f.querySelector('input[name="' + n + '"]:checked') || {}).value || null;
+      const many = (n) => [...f.querySelectorAll('input[name="' + n + '"]:checked')].map((x) => x.value);
+      const budget = parseFloat(f.budget_per_night.value);
+
+      // Same shape as User in TEAM_SPLIT.md, plus the trip it belongs to.
+      const user = {
+        id: "u_" + makeTripId().slice(0, 6),
+        trip_id: tripParam,
+        name,
+        budget_per_night: Number.isFinite(budget) ? budget : null,
+        home_city: f.home_city.value.trim(),
+        answers: {
+          pace: one("pace"),
+          budget: one("budget"),
+          food: one("food"),
+          activities: many("activities"),
+          lodging: one("lodging"),
+          dealbreakers: many("dealbreakers"),
+        },
+      };
+
+      // No backend yet: keep it in this browser so the next step can read it.
+      try { localStorage.setItem("travelbee:user:" + tripParam, JSON.stringify(user)); } catch {}
+      console.log("travelbee user", user);
+
+      $("panel").innerHTML = '<div class="done"><h2></h2><p>Your answers are in. We will let you know when the group plan is ready.</p></div>';
+      $("panel").querySelector("h2").textContent = "Thanks, " + name;
+      document.querySelector(".shell-foot").hidden = true;
+      $("status").textContent = "Answers sent";
+    });
+
+    $("name").addEventListener("input", () => {
+      $("name-error").hidden = true;
+      $("name").removeAttribute("aria-invalid");
+    });
+
+    if (tripParam) showForm();
+  </script>
+</body>
+</html>
