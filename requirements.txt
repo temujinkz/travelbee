@@ -1,0 +1,2 @@
+certifi          # SSL certificates for Band / Keenable on macOS python.org builds
+fast-flights     # real Google Flights fares for researcher.py (falls back to cache/mocks if missing)
