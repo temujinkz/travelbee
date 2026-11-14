@@ -51,6 +51,9 @@ _load_dotenv(os.path.join(_HERE, ".env"))
 if os.getenv("COGNEE_BASE_URL") and not os.getenv("COGNEE_SERVICE_URL"):  # the Claude plugin's name for it
     os.environ["COGNEE_SERVICE_URL"] = os.environ["COGNEE_BASE_URL"]
 
+if "<" in os.getenv("COGNEE_SERVICE_URL", ""):  # an unfilled template line, e.g. tenant-<TENANT_ID>
+    print("[memory] COGNEE_SERVICE_URL is still a placeholder; ignoring it (local cognee)", flush=True)
+    os.environ.pop("COGNEE_SERVICE_URL")
 CLOUD = bool(os.getenv("COGNEE_SERVICE_URL"))
 TIMEOUT_S = float(os.getenv("MEMORY_TIMEOUT_S") or (20 if CLOUD else 15))
 

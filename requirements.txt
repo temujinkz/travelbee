@@ -1,2 +1,3 @@
 certifi          # SSL certificates for Band / Keenable on macOS python.org builds
 fast-flights     # real Google Flights fares for researcher.py (falls back to cache/mocks if missing)
+cognee==1.6.8; python_version >= "3.10"   # P2 memory (falls back to a dict without it)
