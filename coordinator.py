@@ -59,7 +59,7 @@ def _wanted(u: dict) -> list[str]:
 
 
 def slots_for(users: list[dict]) -> list[str]:
-    slots = ["flight", "stay"]
+    slots = ["flight", "stay", "activity:sightseeing"]  # every trip gets the destination's own highlight
     for u in users:
         for tag in _wanted(u):
             if f"activity:{tag}" not in slots:

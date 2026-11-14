@@ -46,6 +46,19 @@ NOT_PER_PERSON = re.compile(r"\b(private|charter|child|children|kids?|senior|inf
 MULTI_DAY = re.compile(r"\b(\d+[- ]days?|multi[- ]day|getaway|package|\d+[- ]nights?)\b", re.I)  # not a single activity
 
 
+USD_PER = {"€": 1.08, "EUR": 1.08, "£": 1.27, "GBP": 1.27}  # fixed demo rates; prices are compared in USD
+
+
+def _to_usd(price: float, quote: str) -> float:
+    """The page's price in USD (the quote's currency symbol tells which; plain $ or none = USD)."""
+    if "$" in quote:
+        return price
+    for sym, rate in USD_PER.items():
+        if sym in quote:
+            return round(price * rate, 2)
+    return price
+
+
 def _rejected(typ: str, raw: dict) -> bool:
     text = raw["title"] + " " + raw["price_quote"]
     return bool(NOT_PER_PERSON.search(text) or (typ == "activity" and MULTI_DAY.search(text)))
@@ -55,8 +68,9 @@ def _ask(hits: list[dict], typ: str, search_text: str) -> list[dict]:
     listing = "\n\n".join(f"[{i}] {h['title']} ({h['url']})\n{h['snippet']}" for i, h in enumerate(hits))
     system = ("Extract bookable trip options from web search results as JSON matching this JSON Schema: "
               + json.dumps(SCHEMA) + f"\nOption type: {typ}. One option per specific named hotel/property or tour whose "
-              "snippet gives a USD price (\"from $258\" counts; example: {\"title\": \"Hotel Rossio\", "
+              "snippet gives a price in $, € or £ (\"from $258\" or \"dès 35 €\" count; example: {\"title\": \"Hotel Rossio\", "
               "\"price\": 136, \"price_quote\": \"from $136 per night\", \"source\": 0, \"tags\": [\"hotel\"]}). "
+              "price is the number exactly as written in price_quote, in the page's currency (do not convert). "
               "Do not use city-wide averages or private-group prices. price_quote is text copied verbatim from that "
               "result's snippet and must contain the price; source is the result's [number]. Price is per night for "
               "stays and per person for activities. Tag only what the snippet supports, plus the tag the request is "
@@ -87,6 +101,7 @@ def extract(hits: list[dict], typ: str, slot_tag: str | None, search_text: str) 
             continue
         seen.update({oid, key})
         tags = set(raw["tags"]) | ({slot_tag} if typ == "activity" and slot_tag else set())
-        out.append({"id": oid, "type": typ, "title": raw["title"].strip()[:90], "price": float(raw["price"]),
+        out.append({"id": oid, "type": typ, "title": raw["title"].strip()[:90],
+                    "price": _to_usd(float(raw["price"]), raw["price_quote"]),
                     "url": url, "tags": sorted(tags)})
     return out

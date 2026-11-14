@@ -57,7 +57,7 @@ def _post(path: str, body: dict) -> dict:
     url = os.getenv("SIE_BASE_URL", "https://api.superlinked.com").rstrip("/") + path
     req = urllib.request.Request(url, json.dumps(body).encode(), headers, method="POST")
     try:
-        with urllib.request.urlopen(req, context=_ssl_context(), timeout=float(os.getenv("SIE_TIMEOUT_S") or 30)) as resp:
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=float(os.getenv("SIE_TIMEOUT_S") or 60)) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         try:
