@@ -60,7 +60,20 @@ def _room() -> str | None:
     return os.getenv("BAND_ROOM_ID")
 
 
+def _live() -> dict:
+    """P2: Band Advocates created for travelers who registered in the web app (agents/advocates.py writes
+    data/advocates.json: {user id: {"agent_id", "api_key", "name", ...}}). Their role is "live_<user id>"."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "advocates.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def _key(role: str) -> str | None:
+    if role.startswith("live_"):
+        return (_live().get(role[len("live_"):]) or {}).get("api_key")
     return os.getenv(f"BAND_{role.upper()}_KEY") or ("dry-run" if _dry() else None)
 
 
@@ -93,9 +106,12 @@ def _body(data):
 def identities() -> dict[str, dict]:
     """Ask Band who each configured key is (GET /agent/me), once."""
     global _identities
+    live_roles = [f"live_{uid}" for uid in _live()]
+    if _identities is not None and any(r not in _identities for r in live_roles):
+        _identities = None  # someone registered since: look the new Advocates up
     if _identities is None:
         found = {}
-        for role in ROLES:
+        for role in ROLES + live_roles:
             key = _key(role)
             if not key:
                 continue
@@ -121,6 +137,9 @@ def assign_seats(users: list[dict]) -> None:
     free = [r for r in ROLES[2:] if r in ids]
     for u in users:
         _names[f"advocate_{u['id']}"] = u["name"]
+        if f"live_{u['id']}" in ids:  # P2: this traveler's own live Advocate
+            _seats[f"advocate_{u['id']}"] = f"live_{u['id']}"
+            continue
         for role in free:
             if _plain(u["name"]) and _plain(u["name"]) in _plain(ids.get(role, {}).get("name", "")):
                 _seats[f"advocate_{u['id']}"] = role
