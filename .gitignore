@@ -10,3 +10,6 @@ _old_scaffold/
 data/memory.json
 data/*.tmp
 agent_config.yaml
+data/logs/
+data/graph_*.html
+data/advocates.json

@@ -15,6 +15,7 @@ How an Advocate decides, for each option:
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import re
 
@@ -64,7 +65,26 @@ def _tags_in(reason: str) -> set[str]:
 
 
 # The group's shared memory (also the Band room's memory). P3's Coordinator writes "trip_<trip id>".
-TRIP_DATASET = f"trip_{os.getenv('TRIP_ID', 'miami')}"
+TRIP_DATASET = f"trip_{os.getenv('TRIP_ID', 'miami')}"  # demo default
+_TRIPS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "trips")
+
+
+def trip_dataset(user_id: str | None = None) -> str:
+    """trip_<id> of the newest web-app trip this traveler belongs to; TRIP_ID or the demo trip otherwise."""
+    if os.getenv("TRIP_ID") or not user_id or not os.path.isdir(_TRIPS_DIR):
+        return TRIP_DATASET
+    best = None
+    for name in os.listdir(_TRIPS_DIR):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(_TRIPS_DIR, name), encoding="utf-8") as f:
+                t = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if user_id in (t.get("members") or []) and (best is None or (t.get("created_at") or "") > (best.get("created_at") or "")):
+            best = t
+    return f"trip_{best['id']}" if best else TRIP_DATASET
 
 # ---------------------------------------------------------------- onboarding into memory
 _onboarded: set[str] = set()
@@ -107,7 +127,7 @@ def _learned(user: dict) -> list[tuple[str, set[str], str]]:
     the traveler's own (user_<id>) and the whole group's (trip_<id>, facts starting "The group ...").
     A single traveler's rejection that the Coordinator also logged in trip memory does NOT bind the others."""
     own = memory.recall(f"user_{user['id']}", "rejected because", top_k=10)
-    group = [f for f in memory.recall(TRIP_DATASET, "group rejected because", top_k=10)
+    group = [f for f in memory.recall(trip_dataset(user["id"]), "group rejected because", top_k=10)
              if f.lower().startswith("the group")]
     return _reasons(own, user["name"]) + _reasons(group, "the group")
 
