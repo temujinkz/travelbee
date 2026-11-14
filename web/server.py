@@ -306,6 +306,20 @@ def _plan(tid):
             chosen[item["type"]] = _choose_type(tid, users, item["type"], excluded, opts)
 
 
+def _create_band_agent(u):
+    """With TRANSPORT=band and BAND_USER_API_KEY set, give this traveler their own Band agent (in the background)."""
+    root = str(WEB.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import protocol  # noqa: F401  (loads .env)
+
+    if os.environ.get("TRANSPORT") != "band" or not os.environ.get("BAND_USER_API_KEY"):
+        return
+    import band
+
+    threading.Thread(target=band.ensure_agent, args=(u,), daemon=True).start()
+
+
 def run_plan(tid):
     try:
         if os.environ.get("AGENTS", "real") == "mock":  # the original stand-in negotiation above
@@ -406,6 +420,7 @@ def route(method, path, q, body):
                 save_user(u)
                 t["members"].append(u["id"])
                 save_trip(t)
+            _create_band_agent(u)
             return {"user_id": u["id"]}
 
         if method == "POST" and rest == ["plan"]:

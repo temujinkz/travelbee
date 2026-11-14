@@ -10,3 +10,5 @@ _old_scaffold/
 data/memory.json
 data/*.tmp
 agent_config.yaml
+data/band_agents.json
+data/memory.json

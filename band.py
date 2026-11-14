@@ -27,11 +27,13 @@ import threading
 import unicodedata
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 ROLES = ["coordinator", "researcher", "advocate_1", "advocate_2", "advocate_3", "advocate_4"]
 
 _seats: dict[str, str] = {}
-_names: dict[str, str] = {}               # "advocate_<user id>" -> traveler name, for relayed messages              # our agent id ("advocate_<user id>") -> role ("advocate_1".."advocate_4")
+_names: dict[str, str] = {}               # "advocate_<user id>" -> traveler name, for relayed messages
+_personal: dict[str, dict] = {}           # "advocate_<user id>" -> that traveler's own Band agent {id, name, api_key}
 _identities: dict[str, dict] | None = None  # role -> {"id", "name", "handle"} from GET /agent/me
 _participants: list[dict] | None = None
 _queue: queue.Queue = queue.Queue()
@@ -61,6 +63,8 @@ def _room() -> str | None:
 
 
 def _key(role: str) -> str | None:
+    if role in _personal:
+        return _personal[role]["api_key"]
     return os.getenv(f"BAND_{role.upper()}_KEY") or ("dry-run" if _dry() else None)
 
 
@@ -112,15 +116,87 @@ def identities() -> dict[str, dict]:
     return _identities
 
 
+# ---------------------------------------------------------------- one Band agent per traveler
+AGENTS_FILE = Path(__file__).resolve().parent / "data" / "band_agents.json"  # holds agent API keys: git-ignored
+
+
+def _load_agents() -> dict:
+    try:
+        return json.loads(AGENTS_FILE.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _describe(u: dict) -> str:
+    a = u.get("answers") or {}
+    bits = [f"Travelbee Advocate for {u['name']}."]
+    if u.get("budget_per_night"):
+        bits.append(f"Budget ${u['budget_per_night']:.0f}/night ({a.get('budget') or 'unspecified'}).")
+    if a.get("activities"):
+        bits.append("Loves: " + ", ".join(a["activities"]) + ".")
+    if a.get("food") or a.get("lodging") or a.get("pace"):
+        bits.append(f"Food: {a.get('food') or '-'}, lodging: {a.get('lodging') or '-'}, pace: {a.get('pace') or '-'}.")
+    if a.get("dealbreakers"):
+        bits.append("Dealbreakers: " + ", ".join(a["dealbreakers"]) + ".")
+    return " ".join(bits)[:500]
+
+
+_agents_lock = threading.Lock()
+
+
+def ensure_agent(u: dict) -> dict | None:
+    """Create "<Name>'s Advocate" in Band for this traveler (once), add it to the room, remember its key.
+    Needs BAND_USER_API_KEY (a band_u_ key). Returns None, and changes nothing, if that isn't possible."""
+    user_key, room = os.getenv("BAND_USER_API_KEY"), _room()
+    with _agents_lock:
+        store = _load_agents()
+        if u["id"] in store:
+            return store[u["id"]]
+        if not user_key or not room or _dry():
+            return None
+        try:
+            res = _body(_http("POST", "/me/agents/register", user_key,
+                              {"agent": {"name": f"{u['name']}'s Advocate"[:24], "description": _describe(u)}})) or {}
+            agent, creds = res.get("agent") or {}, res.get("credentials") or {}
+            if not agent.get("id") or not creds.get("api_key"):
+                raise RuntimeError(f"unexpected register response: {str(res)[:200]}")
+            entry = {"id": agent["id"], "name": agent.get("name"), "handle": agent.get("handle"), "api_key": creds["api_key"]}
+            store[u["id"]] = entry
+            AGENTS_FILE.parent.mkdir(exist_ok=True)
+            AGENTS_FILE.write_text(json.dumps(store, indent=2))
+            os.chmod(AGENTS_FILE, 0o600)
+        except Exception as exc:
+            _report(RuntimeError(f"could not create a Band agent for {u['name']} ({exc}); their messages go through the Coordinator"))
+            return None
+    try:  # our Coordinator adds its sibling agent to the room
+        _http("POST", f"/agent/chats/{room}/participants", _key("coordinator"),
+              {"participant": {"participant_id": entry["id"], "role": "member"}})
+    except Exception as exc:
+        _report(RuntimeError(f"created {entry['name']} but could not add it to the room ({exc})"))
+    return entry
+
+
+def use_personal_agents(users: list[dict]) -> None:
+    """Map each traveler to their own Band agent (creating it if needed)."""
+    _personal.clear()
+    for u in users:
+        entry = ensure_agent(u)
+        if entry:
+            _personal[f"advocate_{u['id']}"] = entry
+
+
 def assign_seats(users: list[dict]) -> None:
     """A traveler speaks through the Band Advocate named after them (e.g. "Léa's Advocate"). Everyone else is
     relayed by the Coordinator under their own name, so any number of travelers works and nobody gets a wrong name."""
     _seats.clear()
     _names.clear()
+    use_personal_agents(users)
     ids = identities()
     free = [r for r in ROLES[2:] if r in ids]
     for u in users:
         _names[f"advocate_{u['id']}"] = u["name"]
+        if f"advocate_{u['id']}" in _personal:
+            continue
         for role in free:
             if _plain(u["name"]) and _plain(u["name"]) in _plain(ids.get(role, {}).get("name", "")):
                 _seats[f"advocate_{u['id']}"] = role
@@ -131,7 +207,9 @@ def assign_seats(users: list[dict]) -> None:
 def _role(agent_id: str) -> str:
     if agent_id in ("coordinator", "researcher"):
         return agent_id
-    # a traveler's own Band Advocate if there is one; otherwise (and for "human") the Coordinator relays it
+    if agent_id in _personal:  # the traveler's own agent, created from their questionnaire
+        return agent_id
+    # a Band Advocate named after them if there is one; otherwise (and for "human") the Coordinator relays it
     return _seats.get(agent_id, "coordinator")
 
 
@@ -147,12 +225,12 @@ def participants(refresh: bool = False) -> list[dict]:
 
 
 def _mentions(msg, sender_role: str) -> list[dict]:
-    ids = identities()
+    ids = {**identities(), **_personal}
     sender_id = ids.get(sender_role, {}).get("id")
     if msg.to in ("human", "all"):
         targets = [p for p in participants() if p.get("type") == "User"]
     elif msg.to == "advocates":  # only the Band Advocates of this trip's travelers
-        targets = [ids[r] for r in sorted(set(_seats.values())) if r in ids]
+        targets = [ids[r] for r in sorted(set(_seats.values())) if r in ids] + list(_personal.values())
     else:
         role = _role(msg.to)
         targets = [ids[role]] if role in ids else []
@@ -170,7 +248,7 @@ def _content(msg, mentions: list[dict]) -> str:
     head = f"[{msg.type} · R{msg.round}]"
     if msg.from_ == "human":
         head += " Humans said:"
-    elif msg.from_.startswith("advocate_") and msg.from_ not in _seats:  # relayed by the Coordinator
+    elif msg.from_.startswith("advocate_") and msg.from_ not in _seats and msg.from_ not in _personal:  # relayed by the Coordinator
         head += f" {_names.get(msg.from_, 'A traveler')}'s Advocate:"
     refs = f" (refs: {', '.join(msg.refs)})" if msg.refs else ""
     return f"{who} {head} {msg.content}{refs}".strip()
