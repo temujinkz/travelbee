@@ -9,8 +9,9 @@ Access is by link, not by login:
   organizer link  ?trip=<id>&admin=<secret>   the creator, sees everyone and starts planning
   personal link   ?trip=<id>&u=<user id>      one traveler, answers questions and sees the plan
 
-The negotiation in run_plan() is a MOCK that follows the Message format from TEAM_SPLIT.md.
-Replace _choose_type()/run_plan() with coordinator.run_trip() when the real agents exist.
+Planning runs coordinator.run_trip(): Google Flights + Keenable find the options, Superlinked decides, the
+organizer approves or rejects in the UI. It needs SUPERLINKED_API_KEY and KEENABLE_API_KEY (see .env.example).
+There is no mock data: if a service fails, the error is written into the trip's log.
 """
 import datetime
 import hmac
@@ -38,7 +39,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no look-alike characters
 MAX_BODY = 64 * 1024
 MAX_MEMBERS = 12
-STEP_DELAY = 0.45  # seconds between mock agent messages, so the log feels live
+STEP_DELAY = 0.0  # no artificial delay: messages appear as the live pipeline produces them
 
 # Single source for the questionnaire. Tag values must match the shared tag list in TEAM_SPLIT.md
 # (beach, hostel, red-eye, nonstop, long-drive, airboat, snorkel, fine-dining).
@@ -172,37 +173,7 @@ def pending_view(t, uid=None, admin=False):
     return view
 
 
-# ---------------------------------------------------------------- mock agents
-
-def make_options(dest):
-    d = dest or "your destination"
-    return [
-        {"id": "f1", "type": "flight", "title": f"Red-eye nonstop to {d}", "price": 120, "url": "#", "tags": ["red-eye", "nonstop"], "min_round": 1},
-        {"id": "f2", "type": "flight", "title": f"Daytime nonstop to {d}", "price": 240, "url": "#", "tags": ["nonstop"], "min_round": 1},
-        {"id": "s1", "type": "stay", "title": "Harbor Hostel", "price": 60, "url": "#", "tags": ["hostel"], "min_round": 1},
-        {"id": "s2", "type": "stay", "title": "Beachfront Hotel", "price": 220, "url": "#", "tags": ["beach"], "min_round": 1},
-        {"id": "s3", "type": "stay", "title": "Midtown Rental", "price": 130, "url": "#", "tags": [], "min_round": 2},
-        {"id": "a1", "type": "activity", "title": "Snorkel trip to the reef", "price": 90, "url": "#", "tags": ["snorkel", "long-drive"], "min_round": 1},
-        {"id": "a2", "type": "activity", "title": "Airboat tour", "price": 55, "url": "#", "tags": ["airboat"], "min_round": 1},
-        {"id": "a3", "type": "activity", "title": "Sunset beach day", "price": 0, "url": "#", "tags": ["beach"], "min_round": 1},
-    ]
-
-
-def objections(u, o):
-    bad = [tag for tag in (u["answers"].get("dealbreakers") or []) if tag in o["tags"]]
-    b = u.get("budget_per_night")
-    if o["type"] == "stay" and b is not None and o["price"] > b:
-        bad.append("over budget")
-    return bad
-
-
-def score(u, o):
-    a = u["answers"]
-    s = sum(1 for tag in (a.get("activities") or []) if tag in o["tags"])
-    if a.get("lodging") == "hostel" and "hostel" in o["tags"]:
-        s += 1
-    return s
-
+# ---------------------------------------------------------------- planning
 
 def add_log(tid, rnd, frm, to, typ, content, refs=(), sleep=True):
     with LOCK:
@@ -234,76 +205,37 @@ def ask_human(tid, rnd, to, kind, question, choices=None, plan=None):
     return ANSWERS[tid]["answer"]
 
 
-def _choose_type(tid, users, typ, excluded, opts):
-    names = lambda u: f"advocate:{u['name']}"
-    for r in range(1, 4):
-        cands = [o for o in opts if o["type"] == typ and o["min_round"] <= r and o["id"] not in excluded]
-        if not cands:
-            add_log(tid, r, "coordinator", "all", "decision", f"No {typ} options are left to choose from.")
-            return None
-        vetoed = {}
-        for u in users:
-            ok = []
-            for o in cands:
-                bad = objections(u, o)
-                if bad:
-                    vetoed.setdefault(o["id"], []).append(u)
-                    add_log(tid, r, names(u), "coordinator", "objection", f"I object to {o['title']}: {', '.join(bad)}.", [o["id"]])
-                else:
-                    ok.append(o)
-            if ok:
-                best = max(ok, key=lambda o: (score(u, o), -o["price"]))
-                add_log(tid, r, names(u), "coordinator", "proposal", f"I propose {best['title']} (${best['price']}).", [best["id"]])
-        viable = [o for o in cands if o["id"] not in vetoed]
-        if viable:
-            pick = max(viable, key=lambda o: (sum(score(u, o) for u in users), -o["price"]))
-            add_log(tid, r, "coordinator", "all", "decision", f"Chose {pick['title']} for {typ}. Nobody objected.", [pick["id"]])
-            return pick
-        if r < 3:
-            add_log(tid, r, "coordinator", "researcher", "research_request", f"Every {typ} option was vetoed. Search again with tighter limits.")
-            fresh = [o for o in opts if o["type"] == typ and o["min_round"] == r + 1 and o["id"] not in excluded]
-            if fresh:
-                add_log(tid, r + 1, "researcher", "coordinator", "research_result", f"Found a new {typ} option: {fresh[0]['title']} (${fresh[0]['price']}).", [fresh[0]["id"]])
-            else:
-                add_log(tid, r + 1, "researcher", "coordinator", "research_result", f"No new {typ} options. The search is already as narrow as it gets.")
-    # deadlock after 3 rounds: ask the traveler with the most vetoes
-    loudest = max(users, key=lambda u: sum(1 for lst in vetoed.values() if u in lst))
-    choices = [{"value": o["id"], "label": f"{o['title']} (${o['price']})"} for o in cands]
-    ans = ask_human(tid, 3, loudest["id"], "choice", f"The group is stuck on the {typ}. Which one can you live with?", choices)
-    pick = next((o for o in cands if o["id"] == ans["choice"]), cands[0])
-    if ans.get("by") == "admin":
-        add_log(tid, 3, "human:organizer", "coordinator", "human_response", f"The organizer chose {pick['title']} on behalf of {loudest['name']}.", [pick["id"]])
-    else:
-        add_log(tid, 3, f"human:{loudest['name']}", "coordinator", "human_response", f"{loudest['name']} picked {pick['title']}.", [pick["id"]])
-    add_log(tid, 3, "coordinator", "all", "decision", f"Chose {pick['title']} for {typ} after the deadlock.", [pick["id"]])
-    return pick
-
-
 def _plan(tid):
+    if str(WEB.parent) not in sys.path:  # coordinator.py, ranking.py, ... live in the project root
+        sys.path.insert(0, str(WEB.parent))
+    import coordinator
+    import protocol
+
     t = load_trip(tid)
     users = [load_user(uid) for uid in t["members"]]
-    opts = make_options(t["destination"])
+    trip = {"id": tid, "destination": t["destination"], "start": t["start"], "end": t["end"], "members": t["members"]}
     set_state(tid, status="planning", log=[], plan=None, pending=None)
-    add_log(tid, 1, "coordinator", "all", "research_request", f"Planning a trip to {t['destination']} for {len(users)} travelers.")
-    excluded, chosen = set(), {}
-    for typ in ("flight", "stay", "activity"):
-        chosen[typ] = _choose_type(tid, users, typ, excluded, opts)
-    while True:
-        plan = [o for o in chosen.values() if o]
-        set_state(tid, plan=plan)
-        ans = ask_human(tid, 3, "organizer", "approval", "Here is the plan. Approve it, or reject one item with a reason.", plan=plan)
+
+    def to_log(m):  # every message the pipeline posts goes into this trip's log
+        add_log(tid, m.round, m.from_, m.to, m.type, m.content, m.refs, sleep=False)
+
+    def approve(plan):
+        items = [o for o in plan.values() if o]
+        set_state(tid, plan=items)
+        ans = ask_human(tid, 3, "organizer", "approval", "Here is the plan. Approve it, or reject one item with a reason.", plan=items)
         if ans["choice"] == "approve":
-            add_log(tid, 3, "human:organizer", "coordinator", "human_response", "Approved the plan.")
-            add_log(tid, 3, "coordinator", "all", "decision", "The plan is final.", sleep=False)
-            set_state(tid, status="done")
-            return
-        item = next((o for o in plan if o["id"] == ans["item_id"]), None)
-        add_log(tid, 3, "human:organizer", "coordinator", "human_response", f"Rejected {item['title'] if item else 'an item'}: {ans['reason'] or 'no reason given'}.")
-        # Real version: remember() the feedback in trip_<id>, improve(), then re-plan that type.
-        add_log(tid, 3, "coordinator", "all", "decision", "Saved the feedback to trip memory (mock of remember and improve) and re-planning that item.")
-        if item:
-            excluded.add(item["id"])
-            chosen[item["type"]] = _choose_type(tid, users, item["type"], excluded, opts)
+            add_log(tid, 3, "human:organizer", "coordinator", "human_response", "Approved the plan.", sleep=False)
+            return None
+        item = next((o for o in items if o["id"] == ans["item_id"]), None)
+        if item is None:
+            raise coordinator.PlanError("The rejected item is no longer in the plan.")
+        reason = ans.get("reason") or "no reason given"
+        add_log(tid, 3, "human:organizer", "coordinator", "human_response", f"Rejected {item['title']}: {reason}.", [item["id"]], sleep=False)
+        return {"option_id": item["id"], "reason": reason, "by": "group"}
+
+    protocol.LISTENER.set(to_log)
+    coordinator.run_trip(trip, users, approve=approve)
+    set_state(tid, status="done", itinerary=coordinator.itinerary_for(tid))
 
 
 def run_plan(tid):
@@ -314,7 +246,7 @@ def run_plan(tid):
         set_state(tid, status="gathering", pending=None)
     except Exception:
         traceback.print_exc()
-        add_log(tid, 3, "coordinator", "all", "decision", "Planning stopped because of a server error.", sleep=False)
+        add_log(tid, 3, "coordinator", "all", "decision", f"Planning stopped: {sys.exc_info()[1]}", sleep=False)
         set_state(tid, status="gathering", pending=None)
 
 

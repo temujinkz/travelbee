@@ -42,8 +42,8 @@ def _users() -> list[dict]:
             with open(full, encoding="utf-8") as f:
                 data = json.load(f)
             return data if isinstance(data, list) else list(data.values())
-    import mocks
-    return mocks.USERS
+    from pathlib import Path
+    return [json.loads(f.read_text()) for f in sorted((Path(HERE) / "data" / "users").glob("*.json"))]
 
 
 def _user(uid: str) -> dict:
@@ -54,16 +54,19 @@ def _user(uid: str) -> dict:
 
 
 def _options(kind: str | None) -> list[dict]:
-    try:
-        import researcher
-        research = researcher.research
-    except ModuleNotFoundError:
-        import mocks
-        research = mocks.research
-    import mocks
-    trip = mocks.TRIP
+    """Live options for the first saved trip (data/trips): the same search the Coordinator runs."""
+    import researcher
+    from pathlib import Path
+
+    trips = sorted((Path(HERE) / "data" / "trips").glob("*.json"))
+    if not trips:
+        sys.exit("no saved trip: create one in the web app first")
+    trip = json.loads(trips[0].read_text())
+    home = (_users() or [{}])[0].get("home_city") or ""
     kinds = [kind] if kind else ["flight", "stay", "activity"]
-    return [o for k in kinds for o in research(trip, {"type": k, "query": "", "max_price": None, "avoid_tags": []})]
+    return [o for k in kinds for o in researcher.research(
+        trip, {"type": k, "query": "", "tag": None, "max_price": None, "avoid_tags": [],
+               "origin": home, "destination": trip["destination"]})]
 
 
 def main(argv: list[str]) -> None:

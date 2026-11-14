@@ -44,6 +44,7 @@ def _load_dotenv(path: str) -> None:
                 continue
             key, _, val = line.partition("=")
             key = key.strip().removeprefix("export ").strip()
+            val = re.split(r"\s+#", val, maxsplit=1)[0]  # drop inline "   # comment" (as protocol.py does)
             os.environ.setdefault(key, val.strip().strip('"').strip("'"))
 
 
