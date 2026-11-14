@@ -13,13 +13,13 @@ Run it with the project's Python 3.12 (it has cognee): .venv/bin/python p2cli.py
     peek     <other_user_id> "<query>" read ANOTHER traveler's memory (read-only), to find common ground
 
   Group memory (trip_<id>), shared by every Advocate and the Band room:
-    group-recall "<query>"                 search the group's memory
+    group-recall <user_id> "<query>"       search the group's memory (of that traveler's trip)
     group-share  <user_id> "<note>"        add a note to the group's memory (who shared it is recorded)
     group-reject <user_id> "<reason>"      a rejection the WHOLE group agreed on: every Advocate vetoes it
 
   Negotiation:
     evaluate <user_id> [type]          how this Advocate votes on the current options
-    options  [type]                    the options on the table (flight | stay | activity)
+    options  <user_id> [type]          the options for that traveler's trip (flight | stay | activity)
     status                             which memory backend is live (dict, cognee-local, cognee-cloud)
 """
 from __future__ import annotations
@@ -35,38 +35,68 @@ import advocate  # noqa: E402
 import memory  # noqa: E402
 
 
+USERS_DIR = os.path.join(HERE, "data", "users")   # written by web/server.py when someone registers
+TRIPS_DIR = os.path.join(HERE, "data", "trips")
+
+
+def _read_dir(path: str) -> list[dict]:
+    out = []
+    if os.path.isdir(path):
+        for name in sorted(os.listdir(path)):
+            if name.endswith(".json"):
+                try:
+                    with open(os.path.join(path, name), encoding="utf-8") as f:
+                        out.append(json.load(f))
+                except (OSError, ValueError):
+                    pass  # being written right now
+    return out
+
+
 def _users() -> list[dict]:
-    for path in ("demo/users.json", "data/users.json"):
-        full = os.path.join(HERE, path)
-        if os.path.exists(full):
-            with open(full, encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, list) else list(data.values())
-    from pathlib import Path
-    return [json.loads(f.read_text()) for f in sorted((Path(HERE) / "data" / "users").glob("*.json"))]
+    """Travelers registered in the web app (data/users/*.json). There is no demo data."""
+    live = [u for u in _read_dir(USERS_DIR) if u.get("id") and u.get("name")]
+    for u in live:
+        u.setdefault("answers", {})
+        b = u.get("budget_per_night")
+        if isinstance(b, float) and b.is_integer():
+            u["budget_per_night"] = int(b)
+    return live
+
+
+def trip_of(uid: str) -> dict:
+    """The newest trip this traveler belongs to (web app data)."""
+    trips = [t for t in _read_dir(TRIPS_DIR) if uid in (t.get("members") or [])]
+    if not trips:
+        sys.exit(f"no saved trip for traveler {uid!r}: create the trip and register travelers in the web app first")
+    t = max(trips, key=lambda t: t.get("created_at") or t.get("id"))
+    return {"id": t["id"], "destination": t.get("destination") or "", "start": t.get("start") or "",
+            "end": t.get("end") or "", "members": list(t.get("members") or [])}
 
 
 def _user(uid: str) -> dict:
     for u in _users():
-        if u["id"] == uid.lower() or u["name"].lower() == uid.lower():
+        if u["id"] == uid or u["id"].lower() == uid.lower() or u["name"].lower() == uid.lower():
             return u
-    sys.exit(f"unknown user {uid!r}; known: {', '.join(u['id'] for u in _users())}")
+    sys.exit(f"unknown traveler {uid!r}; known: {', '.join(u['name'] + ' (' + u['id'] + ')' for u in _users())}")
 
 
-def _options(kind: str | None) -> list[dict]:
-    """Live options for the first saved trip (data/trips): the same search the Coordinator runs."""
+def _options(kind: str | None, uid: str | None = None) -> list[dict]:
+    """Live options for the traveler's trip: the same searches the Coordinator runs."""
     import researcher
-    from pathlib import Path
 
-    trips = sorted((Path(HERE) / "data" / "trips").glob("*.json"))
-    if not trips:
-        sys.exit("no saved trip: create one in the web app first")
-    trip = json.loads(trips[0].read_text())
-    home = (_users() or [{}])[0].get("home_city") or ""
+    if not uid:
+        sys.exit("options needs a traveler id: it searches that traveler's trip")
+    trip = trip_of(uid)
+    home = _user(uid).get("home_city") or ""
     kinds = [kind] if kind else ["flight", "stay", "activity"]
-    return [o for k in kinds for o in researcher.research(
-        trip, {"type": k, "query": "", "tag": None, "max_price": None, "avoid_tags": [],
-               "origin": home, "destination": trip["destination"]})]
+    out = []
+    for k in kinds:
+        try:
+            out += researcher.research(trip, {"type": k, "query": k, "tag": None, "max_price": None, "avoid_tags": [],
+                                              "origin": home, "destination": trip["destination"]})
+        except Exception as exc:  # a live search failing must not kill the agent's tool
+            print(f"(research for {k} failed: {exc})")
+    return out
 
 
 def main(argv: list[str]) -> None:
@@ -74,17 +104,12 @@ def main(argv: list[str]) -> None:
         print(__doc__)
         return
     cmd, args = argv[0], argv[1:]
-    group = advocate.TRIP_DATASET
     if cmd == "status":
-        print("backend:", memory.backend(), "| group dataset:", group)
-        return
-    if cmd == "group-recall":
-        for fact in memory.recall(group, " ".join(args) or "decision plan rejected", top_k=8):
-            print(" -", fact)
-        print(f"(source: {memory.LAST_SOURCE.get(group, 'dict')})")
+        print("backend:", memory.backend(), "| travelers:", ", ".join(f"{u['name']} ({u['id']})" for u in _users()))
         return
     if cmd == "options":
-        for o in _options(args[0] if args else None):
+        uid = _user(args[0])["id"] if args else None
+        for o in _options(args[1] if len(args) > 1 else None, uid):
             print(f"{o['id']:24s} {o['type']:8s} ${o['price']:>4}  {o['title']}  tags={','.join(o['tags'])}")
         return
     if not args:
@@ -92,6 +117,12 @@ def main(argv: list[str]) -> None:
     u = _user(args[0])
     advocate.onboard(u)
     ds = f"user_{u['id']}"
+    group = advocate.trip_dataset(u["id"])
+    if cmd == "group-recall":
+        for fact in memory.recall(group, " ".join(args[1:]) or "decision plan rejected", top_k=8):
+            print(" -", fact)
+        print(f"(group memory {group}, source: {memory.LAST_SOURCE.get(group, 'dict')})")
+        return
     if cmd == "profile":
         print(json.dumps({k: u[k] for k in ("id", "name", "budget_per_night", "home_city", "answers") if k in u},
                          ensure_ascii=False, indent=1))
@@ -132,7 +163,7 @@ def main(argv: list[str]) -> None:
             tags = sorted(advocate._tags_in(text))
             print("every Advocate will veto options tagged:", ", ".join(tags) if tags else "(no known tag matched)")
     elif cmd == "evaluate":
-        for m in advocate.evaluate(u, _options(args[1] if len(args) > 1 else None), 0):
+        for m in advocate.evaluate(u, _options(args[1] if len(args) > 1 else None, u["id"]), 0):
             print(f"{m.type.upper():10s} {m.content}")
     else:
         sys.exit(f"unknown command {cmd!r}\n{__doc__}")

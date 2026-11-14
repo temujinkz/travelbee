@@ -12,7 +12,6 @@ Settings can live in a .env file next to this one (see .env.example); real envir
 """
 from __future__ import annotations
 
-import contextvars
 import os
 import re
 import threading
@@ -67,16 +66,17 @@ LOG: list[Message] = []
 _lock = threading.Lock()
 
 
-# A listener set in the current thread/context also receives every message posted from it, so the web server
-# can record each trip's messages in that trip's own log while several trips plan at once.
-LISTENER: contextvars.ContextVar = contextvars.ContextVar("protocol_listener", default=None)
+LISTENERS: list = []  # callables fn(msg), e.g. web/bridge.py copies every message into the trip's web log
 
 
 def post(msg: Message) -> Message:
     with _lock:
         LOG.append(msg)
-    if (listener := LISTENER.get()) is not None:
-        listener(msg)
+    for fn in list(LISTENERS):
+        try:
+            fn(msg)
+        except Exception as exc:  # a broken listener must never stop the negotiation
+            print(f"[protocol] listener error: {exc!r}", flush=True)
     if os.getenv("PRINT_LOG") == "1":
         print(f"[R{msg.round}] {msg.from_} → {msg.to}  {msg.type.upper()}: {msg.content}", flush=True)
     if os.getenv("TRANSPORT", "local") == "band":

@@ -205,42 +205,11 @@ def ask_human(tid, rnd, to, kind, question, choices=None, plan=None):
     return ANSWERS[tid]["answer"]
 
 
-def _plan(tid):
-    if str(WEB.parent) not in sys.path:  # coordinator.py, ranking.py, ... live in the project root
-        sys.path.insert(0, str(WEB.parent))
-    import coordinator
-    import protocol
-
-    t = load_trip(tid)
-    users = [load_user(uid) for uid in t["members"]]
-    trip = {"id": tid, "destination": t["destination"], "start": t["start"], "end": t["end"], "members": t["members"]}
-    set_state(tid, status="planning", log=[], plan=None, pending=None)
-
-    def to_log(m):  # every message the pipeline posts goes into this trip's log
-        add_log(tid, m.round, m.from_, m.to, m.type, m.content, m.refs, sleep=False)
-
-    def approve(plan):
-        items = [o for o in plan.values() if o]
-        set_state(tid, plan=items)
-        ans = ask_human(tid, 3, "organizer", "approval", "Here is the plan. Approve it, or reject one item with a reason.", plan=items)
-        if ans["choice"] == "approve":
-            add_log(tid, 3, "human:organizer", "coordinator", "human_response", "Approved the plan.", sleep=False)
-            return None
-        item = next((o for o in items if o["id"] == ans["item_id"]), None)
-        if item is None:
-            raise coordinator.PlanError("The rejected item is no longer in the plan.")
-        reason = ans.get("reason") or "no reason given"
-        add_log(tid, 3, "human:organizer", "coordinator", "human_response", f"Rejected {item['title']}: {reason}.", [item["id"]], sleep=False)
-        return {"option_id": item["id"], "reason": reason, "by": "group"}
-
-    protocol.LISTENER.set(to_log)
-    coordinator.run_trip(trip, users, approve=approve)
-    set_state(tid, status="done", itinerary=coordinator.itinerary_for(tid))
-
-
 def run_plan(tid):
     try:
-        _plan(tid)
+        import bridge  # web/bridge.py runs coordinator.run_trip for this trip
+
+        bridge.run(tid, sys.modules[__name__])
     except TimeoutError:
         add_log(tid, 3, "coordinator", "all", "decision", "Planning paused because nobody answered in time. Start it again when ready.", sleep=False)
         set_state(tid, status="gathering", pending=None)
@@ -453,6 +422,7 @@ def recover():
 if __name__ == "__main__":
     recover()
     port = int(os.environ.get("PORT", "8123"))
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"Travelbee on http://127.0.0.1:{port}")
+    host = os.environ.get("HOST", "127.0.0.1")  # HOST=0.0.0.0 lets others on the same Wi-Fi open it
+    srv = ThreadingHTTPServer((host, port), Handler)
+    print(f"Travelbee on http://{host}:{port}")
     srv.serve_forever()

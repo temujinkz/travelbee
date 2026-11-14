@@ -182,6 +182,7 @@ def _announce_plan(trip: dict, plan: dict, rnd: int) -> list[str]:
 def _ask_via_human(trip: dict, users: list[dict], ask_human):
     def approve(plan: dict) -> dict | None:
         rnd = _STATE[trip["id"]]["round"]
+        _STATE[trip["id"]]["plan"] = dict(plan)  # web/bridge.py shows these items on the approval screen
         items = [(s, o) for s, o in plan.items() if o]
         ids = [o["id"] for _, o in items]
         question = "Approve this plan? You can reject one item and the agents will re-plan around it."
