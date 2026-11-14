@@ -2,3 +2,8 @@ data/trips/
 data/users/
 __pycache__/
 *.pyc
+.env
+.venv/
+.data/
+_old_scaffold/
+.DS_Store
