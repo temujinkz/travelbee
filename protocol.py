@@ -7,11 +7,13 @@
 post() is the ONE place messages go out:
   - appends to LOG (P1's Streamlit page re-reads LOG every second)
   - PRINT_LOG=1 also prints it; PACE_S=0.5 slows the run so a live demo is readable
-  - TRANSPORT=band will also send it to the trip's Band room (wired 1:30-2:30; LOG stays the source of truth)
+  - TRANSPORT=band also sends it to the trip's Band room (band.py; LOG stays the source of truth)
+Settings can live in a .env file next to this one (see .env.example); real environment variables win.
 """
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -45,6 +47,21 @@ class Message:
         return cls(d["round"], d["from"], d["to"], d["type"], d["content"], list(d.get("refs") or []))
 
 
+def _load_dotenv(path: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")) -> None:
+    """Read KEY=value lines from .env into the environment (real env vars win). No dependency."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                value = re.split(r"\s+#", value, maxsplit=1)[0]  # drop inline "   # comment"
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 LOG: list[Message] = []
 _lock = threading.Lock()
 
@@ -67,13 +84,8 @@ def clear_log() -> None:
         LOG.clear()
 
 
-_band_warned = False
-
-
 def _send_to_band(msg: Message) -> None:
-    """TODO(P3, 1:30-2:30): send msg to the trip's Band room, @mentioning msg.to, with round/type/refs in a
-    readable prefix like "[objection · R2 · refs: stay_inn] ...". Until then messages stay local."""
-    global _band_warned
-    if not _band_warned:
-        print("[protocol] TRANSPORT=band is not wired yet; messages stay in LOG only", flush=True)
-        _band_warned = True
+    """Mirror msg into the trip's Band room (see band.py). Non-blocking; failures never affect LOG."""
+    import band
+
+    band.send(msg)
