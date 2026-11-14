@@ -356,6 +356,11 @@ def route(method, path, q, body):
             return {"trip": public_trip(t), "members": [m for m in members if m], "log": t["log"],
                     "pending": pending_view(t, admin=True), "plan": t["plan"]}
 
+        if method == "GET" and rest == ["export"]:
+            check_admin(t, one("admin"))
+            return {"trip": {k: v for k, v in t.items() if k != "admin_token"},
+                    "users": [u for u in (load_user(uid) for uid in t["members"]) if u]}
+
         if method == "GET" and rest == ["me"]:
             u = load_user(one("u"))
             if not u or u["trip_id"] != t["id"]:
