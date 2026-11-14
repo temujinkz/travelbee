@@ -526,6 +526,7 @@ def recover():
 if __name__ == "__main__":
     recover()
     port = int(os.environ.get("PORT", "8123"))
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    print(f"Travelbee on http://127.0.0.1:{port}")
+    host = os.environ.get("HOST", "127.0.0.1")  # HOST=0.0.0.0 lets others on the same Wi-Fi open it
+    srv = ThreadingHTTPServer((host, port), Handler)
+    print(f"Travelbee on http://{host}:{port}")
     srv.serve_forever()
