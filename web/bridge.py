@@ -62,7 +62,8 @@ def _run(tid: str, s) -> None:
             u["budget_per_night"] = int(b)
     names = {u["id"]: u["name"] for u in users}
     trip = {"id": tid, "destination": t.get("destination") or "", "start": t.get("start") or "",
-            "end": t.get("end") or "", "members": [u["id"] for u in users]}
+            "end": t.get("end") or "", "members": [u["id"] for u in users],
+            "activities": t.get("activities") or []}  # the destination's activity list (plan B alternatives)
 
     def who(agent: str) -> str:
         if agent.startswith("advocate_"):
