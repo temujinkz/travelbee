@@ -7,3 +7,6 @@ __pycache__/
 .data/
 _old_scaffold/
 .DS_Store
+data/memory.json
+data/*.tmp
+agent_config.yaml
