@@ -30,6 +30,16 @@ import unicodedata
 import urllib.error
 import urllib.request
 
+# python.org Python on macOS has no system CA certificates: point every HTTPS client (urllib, band-sdk's
+# websocket, cognee) at certifi's bundle before anything opens a connection.
+try:
+    import certifi as _certifi
+
+    os.environ.setdefault("SSL_CERT_FILE", _certifi.where())
+except ImportError:
+    pass
+
+
 # The repo has a band.py (P3's transport) that would shadow the band-sdk package if the repo root came first.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != ROOT] + [ROOT]

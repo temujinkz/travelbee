@@ -12,6 +12,16 @@ import sys
 import urllib.request
 import webbrowser
 
+# python.org Python on macOS has no system CA certificates: point every HTTPS client (urllib, band-sdk's
+# websocket, cognee) at certifi's bundle before anything opens a connection.
+try:
+    import certifi as _certifi
+
+    os.environ.setdefault("SSL_CERT_FILE", _certifi.where())
+except ImportError:
+    pass
+
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env = {}
 for line in open(os.path.join(ROOT, ".env"), encoding="utf-8"):
