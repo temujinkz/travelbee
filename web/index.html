@@ -76,6 +76,7 @@
 
     /* ---------- title (halftone, adapted from the ARC landing page) ---------- */
     h1.brand { margin: 0; width: 100%; }
+    .home { display: block; cursor: pointer; -webkit-tap-highlight-color: transparent; border-radius: 12px; }
     .halftone { display: block; width: 100%; height: clamp(150px, 44vw, 250px); }
     body.app-view .halftone { height: clamp(84px, 24vw, 120px); }
 
@@ -214,6 +215,9 @@
     .panel { background: var(--paper); border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--line-faint); padding: 20px; }
     .panel.tight-bottom { padding-bottom: 8px; }
     .shell-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px; padding-inline-start: 14px; }
+    .shell-foot:has(.glass) { background: var(--paper); border-radius: 0 0 var(--radius-panel) var(--radius-panel); box-shadow: 0 0 0 1px var(--line-faint); padding: 14px 16px 16px 20px; }
+    .panel:has(+ .shell-foot .glass) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: none; }
+    .shell:has(.shell-foot .glass) { box-shadow: 0 0 0 1px var(--line-faint); }
     .shell-foot .meta { margin-inline-end: auto; font: 400 12px/1.35 var(--font-sans); color: var(--text-2); }
     h2.title { margin: 0 0 4px; font: 500 28px/1.2 var(--font-sans); letter-spacing: -.01em; }
     h2.heading { margin: 0 0 12px; font: 500 20px/1.3 var(--font-sans); }
@@ -262,7 +266,9 @@
     .rows li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line-faint); }
     .rows li:first-child { border-top: 0; padding-top: 0; }
     .rows .who { font-weight: 500; }
+    .rows li { flex-wrap: wrap; }
     .rows .sub { color: var(--text-2); font-size: 13px; margin-inline-start: auto; text-align: right; }
+    .rows .detail { flex-basis: 100%; margin: -4px 0 0; color: var(--text-2); font-size: 13px; }
     .badge { display: inline-block; padding: 0 8px; height: 20px; line-height: 20px; border-radius: var(--radius-pill); font: 500 12px/20px var(--font-sans); color: var(--text-2); box-shadow: 0 0 0 1px var(--line); margin-inline-start: 8px; }
     .empty { color: var(--text-2); margin: 0; }
 
@@ -297,6 +303,16 @@
     .trip-link { display: flex; align-items: baseline; gap: 12px; width: 100%; color: inherit; text-decoration: none; }
     .trip-link:hover .who { text-decoration: underline; text-underline-offset: 3px; }
     #trips { max-width: 520px; }
+    a { color: inherit; }
+    .link-strong { font: 500 13px/1.35 var(--font-sans); color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; }
+    .link-strong:hover { color: var(--text-2); }
+    .textlink { background: none; border: 0; padding: 0; margin: 0; font: inherit; font-size: 13px; color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+    .textlink:hover { color: var(--text-1); }
+    .shell-foot .textlink { font-size: 12px; }
+    .rows li > details { width: 100%; }
+    .member summary { display: flex; align-items: baseline; gap: 12px; cursor: pointer; list-style: none; }
+    .member summary::-webkit-details-marker { display: none; }
+    .member .detail { margin: 6px 0 0; }
 
     @media (prefers-reduced-motion: reduce) {
       .glass, .ghost, .flat, .input, .chip span { transition: none; }
@@ -311,7 +327,7 @@
 </head>
 <body>
   <main>
-    <h1 class="brand"><span class="sr-only">Travelbee</span><canvas id="title" class="halftone" aria-hidden="true"></canvas></h1>
+    <h1 class="brand"><a class="home" href="/" aria-label="Travelbee, back to the start"><canvas id="title" class="halftone" aria-hidden="true"></canvas></a></h1>
 
     <!-- Landing: create a trip and get the join link -->
     <section id="view-create" style="display:contents">
@@ -323,11 +339,6 @@
         <span>Generate a travel link</span>
       </button>
       <p id="create-error" class="error-line" role="alert" hidden></p>
-      <div id="actions" class="actions" hidden>
-        <button id="copy" class="ghost" type="button" aria-label="Copy join link" title="Copy join link"></button>
-        <button id="share" class="ghost" type="button" aria-label="Share join link" title="Share join link"></button>
-        <a id="org-link" class="ghost" aria-label="Open organizer view" title="Open organizer view"></a>
-      </div>
       <section id="trips" class="stack" hidden aria-label="Your trips"></section>
     </section>
 
@@ -401,6 +412,16 @@
       return kind.charAt(0).toUpperCase() + kind.slice(1);
     };
     const money = (n) => "$" + Number(n).toLocaleString();
+    const answersLine = (a) => {
+      const bits = [];
+      if (a.pace) bits.push("Pace: " + a.pace);
+      if (a.budget) bits.push("Spending: " + a.budget);
+      if (a.food) bits.push("Food: " + a.food);
+      if (a.activities && a.activities.length) bits.push("Wants: " + a.activities.join(", "));
+      if (a.lodging) bits.push("Stays: " + a.lodging);
+      if (a.dealbreakers && a.dealbreakers.length) bits.push("Avoids: " + a.dealbreakers.join(", "));
+      return bits.join(". ") || "No other answers given.";
+    };
 
     /* The trips this browser has made or joined, so a closed tab never loses the way back.
        Stored on this device only: { id, role: "organizer" | "traveler", secret: organizer secret or personal id }. */
@@ -426,16 +447,18 @@
       box.textContent = "";
       const rows = [];
       for (const e of loadReg().slice(0, 8)) {
-        try { rows.push({ e, t: await api("/trips/" + e.id) }); }
-        catch (err) { if (err.status === 404) forget(e.id, e.role); }
+        try {
+          if (e.role === "organizer") rows.push({ e, t: await api("/trips/" + e.id), who: "Organizer" });
+          else { const r = await api("/trips/" + e.id + "/me?u=" + encodeURIComponent(e.secret)); rows.push({ e, t: r.trip, who: r.user.name }); }
+        } catch (err) { if (err.status === 404 || err.status === 403) forget(e.id, e.role); }
       }
       box.hidden = !rows.length;
       if (!rows.length) return;
       box.append(card([
         h("h2", { class: "heading", text: "Your trips" }),
-        h("ul", { class: "rows" }, rows.map(({ e, t }) => h("li", {},
+        h("ul", { class: "rows" }, rows.map(({ e, t, who }) => h("li", {},
           h("a", { class: "trip-link", href: entryLink(e) },
-            h("span", {}, h("span", { class: "who", text: t.destination || "Trip " + e.id }), h("span", { class: "badge", text: e.role === "organizer" ? "Organizer" : "Traveler" })),
+            h("span", {}, h("span", { class: "who", text: t.destination || "Untitled trip" }), h("span", { class: "badge", text: who })),
             h("span", { class: "sub", text: t.start && t.end ? fmtDay(t.start) + " to " + fmtDay(t.end) : t.member_count + (t.member_count === 1 ? " traveler" : " travelers") }))))),
       ]));
     }
@@ -636,46 +659,28 @@
       return { attach };
     })();
 
-    /* ---------------- landing: generate, copy, share, open organizer view ---------------- */
+    /* ---------------- landing: one button, straight into setup ---------------- */
     function setupCreate() {
-      let joinLink = "";
-      $("copy").innerHTML = ICON.copy;
-      $("share").innerHTML = ICON.share;
-      $("org-link").innerHTML = ICON.organizer;
       renderTrips();
-
-      const lights = AIL.attach($("generate"));
+      const btn = $("generate");
+      const lights = AIL.attach(btn);
       let busy = false;
-      $("generate").addEventListener("click", async () => {
-        const btn = $("generate");
+      btn.addEventListener("click", async () => {
         if (busy) return;
         busy = true;
         btn.setAttribute("aria-busy", "true");
         lights.play();
         $("create-error").hidden = true;
         try {
-          const r = await api("/trips", {});
-          joinLink = linkTo({ trip: r.trip_id });
+          // let the light run for a moment while the trip is created
+          const [r] = await Promise.all([api("/trips", {}), new Promise((done) => setTimeout(done, 900))]);
           remember({ id: r.trip_id, role: "organizer", secret: r.admin_token });
-          renderTrips();
-          $("org-link").href = linkTo({ trip: r.trip_id, admin: r.admin_token });
-          $("actions").hidden = false;
-          $("copy").innerHTML = ICON.copy;
-          $("share").style.display = navigator.share ? "" : "none";
-          announce("Travel link ready. Use copy, share, or open the organizer view.");
+          location.href = linkTo({ trip: r.trip_id, admin: r.admin_token });
         } catch (e) {
           $("create-error").textContent = e.message;
           $("create-error").hidden = false;
-        } finally { busy = false; btn.removeAttribute("aria-busy"); }
-      });
-      $("copy").addEventListener("click", async () => {
-        await copyText(joinLink);
-        $("copy").innerHTML = ICON.check;
-        announce("Link copied");
-        setTimeout(() => { $("copy").innerHTML = ICON.copy; }, 1600);
-      });
-      $("share").addEventListener("click", () => {
-        navigator.share({ title: "Join our trip on Travelbee", url: joinLink }).catch(() => {});
+          busy = false; btn.removeAttribute("aria-busy");
+        }
       });
     }
 
@@ -828,23 +833,11 @@
     function showThanks(name, userId) {
       enterAppView();
       const mine = linkTo({ trip: TRIP, u: userId });
-      const input = h("input", { class: "input", type: "text", readonly: true, value: mine, "aria-label": "Your personal link" });
-      const copyBtn = h("button", { class: "ghost", type: "button", "aria-label": "Copy your personal link", onclick: async () => {
-        await copyText(mine); copyBtn.innerHTML = ICON.check; announce("Link copied");
-        setTimeout(() => { copyBtn.innerHTML = ICON.copy; }, 1600);
-      } });
-      copyBtn.innerHTML = ICON.copy;
-      const shareBtn = h("button", { class: "ghost", type: "button", "aria-label": "Send your personal link to yourself", title: "Send your personal link to yourself", onclick: () => {
-        navigator.share({ title: "My Travelbee link", url: mine }).catch(() => {});
-      } });
-      shareBtn.innerHTML = ICON.share;
-      if (!navigator.share) shareBtn.hidden = true;
       const back = ADMIN ? linkTo({ trip: TRIP, admin: ADMIN }) : mine;
       app.append(card([
         h("h2", { class: "title", text: "Thanks, " + name }),
-        h("p", { class: "desc", text: ADMIN ? "Your answers are in. You are now part of the group." : "Your answers are in. This page is saved on this device. Copy the link or send it to yourself too: it is how you come back to answer questions and see the plan." }),
-        ADMIN ? null : h("div", { class: "link-row" }, input, copyBtn, shareBtn),
-      ], h("div", { class: "shell-foot" }, h("a", { class: "glass glass-sm", href: back }, h("span", { text: ADMIN ? "Back to organizer view" : "Open my trip page" })))));
+        h("p", { class: "desc", text: ADMIN ? "You are now part of the group." : "Your answers are in. This device will remember your page." }),
+      ], h("div", { class: "shell-foot" }, h("a", { class: "glass glass-sm", href: back }, h("span", { text: ADMIN ? "Back to your trip" : "Open my page" })))));
       announce("Answers sent");
     }
 
@@ -860,133 +853,132 @@
       return () => { stop = true; };
     }
 
-    /* ---------------- organizer dashboard ---------------- */
+    /* ---------------- organizer: one step at a time ---------------- */
     async function showDashboard() {
       enterAppView();
+      const qs = "?admin=" + encodeURIComponent(ADMIN);
       let first;
-      try { first = await api("/trips/" + TRIP + "/dashboard?admin=" + encodeURIComponent(ADMIN)); }
+      try { first = await api("/trips/" + TRIP + "/dashboard" + qs); }
       catch (e) { return showError(e.message); }
+      remember({ id: TRIP, role: "organizer", secret: ADMIN });
 
-      const dest = h("input", { id: "dest", class: "input", type: "text", maxlength: "80", placeholder: "Where is the group going?", value: first.trip.destination });
-      const start = h("input", { id: "start", class: "input", type: "date", value: first.trip.start });
-      const end = h("input", { id: "end", class: "input", type: "date", value: first.trip.end });
-      const detailsMsg = h("span", { class: "note", role: "status" });
-      const saveBtn = h("button", { class: "flat", type: "button", text: "Save details" });
+      const state = { logLen: 0, pendingKey: "", topKey: null, sig: "" };
+      let editing = false, latest = first;
 
+      /* 1. where and when */
+      const top = h("div");
+
+      /* 2. invite and plan, built once so button labels survive the polling */
       const members = h("ul", { class: "rows" });
+      const inviteBtn = h("button", { class: "glass", type: "button" }, h("span", { text: "Copy invite link" }));
       const meta = h("span", { class: "meta" });
-      const copyJoin = h("button", { class: "flat", type: "button", text: "Copy join link" });
-      const answerMine = h("a", { class: "flat", href: linkTo({ trip: TRIP, admin: ADMIN, answer: 1 }), text: "Answer my questions" });
       const planBtn = h("button", { class: "glass glass-sm", type: "button" }, h("span", { text: "Plan our trip" }));
+      const msg = h("span", { class: "error", role: "alert", hidden: true });
+      const invite = h("div", { hidden: true }, h("div", { class: "shell" },
+        h("div", { class: "panel" },
+          h("h2", { class: "heading", text: "Invite your group" }),
+          h("div", { style: "margin-bottom:20px" }, inviteBtn),
+          members, msg),
+        h("div", { class: "shell-foot" }, meta, planBtn)));
 
+      /* 3. while and after the agents work */
       const action = h("div", { hidden: true });
       const planBox = h("div", { hidden: true });
       const logBox = h("div", { class: "log", role: "log", "aria-label": "Agent messages" });
       const logCard = h("div", { hidden: true }, card([h("h2", { class: "heading", text: "What the agents said" }), logBox]));
+      app.append(top, invite, action, planBox, logCard);
 
-      remember({ id: TRIP, role: "organizer", secret: ADMIN });
-      const stepsList = h("ul", { class: "steps" });
-      const saveCopy = h("button", { class: "ghost", type: "button", "aria-label": "Copy organizer link", title: "Copy organizer link" });
-      saveCopy.innerHTML = ICON.copy;
-      saveCopy.addEventListener("click", async () => {
-        await copyText(location.href); saveCopy.innerHTML = ICON.check; announce("Organizer link copied");
-        setTimeout(() => { saveCopy.innerHTML = ICON.copy; }, 1600);
-      });
-      const saveShare = h("button", { class: "ghost", type: "button", "aria-label": "Send organizer link to yourself", title: "Send organizer link to yourself", onclick: () => {
-        navigator.share({ title: "Travelbee organizer link", url: location.href }).catch(() => {});
-      } });
-      saveShare.innerHTML = ICON.share;
-      if (!navigator.share) saveShare.hidden = true;
-      const stepsCard = card([
-        h("h2", { class: "title", text: "Your trip" }),
-        h("p", { class: "desc", text: "Follow these steps. Everyone who joins gets their own agent." }),
-        stepsList,
-        h("p", { class: "note", text: "Keep this page's link. It is your organizer link and the only way back to this dashboard. This device remembers it too." }),
-      ], h("div", { class: "shell-foot" }, h("span", { class: "meta", text: "Trip " + TRIP }), saveCopy, saveShare));
-
-      app.append(
-        stepsCard,
-        card([
-          h("h2", { class: "heading", text: "Where and when" }),
-          h("div", { class: "field" }, h("label", { for: "dest", text: "Destination" }), dest),
-          h("div", { class: "field row2" }, h("div", {}, h("label", { for: "start", text: "Start" }), start), h("div", {}, h("label", { for: "end", text: "End" }), end)),
-          h("div", { class: "btn-row", style: "justify-content:flex-start;align-items:center" }, saveBtn, detailsMsg),
-        ]),
-        card([h("h2", { class: "heading", text: "Travelers" }), members],
-          h("div", { class: "shell-foot" }, meta, copyJoin, answerMine, planBtn)),
-        action, planBox, logCard);
-
-      const state = { logLen: 0, pendingKey: "", sig: "" };
-      let latest = first;
-
-      const saveDetails = async () => {
-        const t = await api("/trips/" + TRIP + "/details?admin=" + encodeURIComponent(ADMIN), { destination: dest.value, start: start.value, end: end.value });
-        detailsMsg.textContent = "Saved"; announce("Details saved");
-        return t;
-      };
-      saveBtn.addEventListener("click", async () => {
-        detailsMsg.textContent = "";
-        try { await saveDetails(); } catch (e) { detailsMsg.textContent = e.message; }
-      });
-      copyJoin.addEventListener("click", async () => {
+      inviteBtn.addEventListener("click", async () => {
         await copyText(linkTo({ trip: TRIP }));
-        copyJoin.textContent = "Copied"; announce("Join link copied");
-        setTimeout(() => { copyJoin.textContent = "Copy join link"; }, 1600);
+        inviteBtn.querySelector("span").textContent = "Link copied";
+        announce("Invite link copied. Send it to your group.");
+        setTimeout(() => { inviteBtn.querySelector("span").textContent = "Copy invite link"; }, 1800);
       });
-      planBtn.addEventListener("click", async () => {
-        planBtn.disabled = true;
-        try {
-          await saveDetails();
-          await api("/trips/" + TRIP + "/plan?admin=" + encodeURIComponent(ADMIN), {});
-        } catch (e) { detailsMsg.textContent = e.message; }
+      const startPlan = async () => {
+        planBtn.disabled = true; msg.hidden = true;
+        try { await api("/trips/" + TRIP + "/plan" + qs, {}); }
+        catch (e) { msg.textContent = e.message; msg.hidden = false; }
         refresh();
-      });
+      };
+      planBtn.addEventListener("click", startPlan);
       const answer = async (payload) => {
         try { await api("/trips/" + TRIP + "/answer", { admin: ADMIN, ...payload }); } catch (e) { announce(e.message); state.pendingKey = ""; }
         refresh();
       };
 
+      function renderTop(d) {
+        top.textContent = "";
+        const hasDest = !!d.trip.destination;
+        if (hasDest && !editing) {
+          const when = d.trip.start && d.trip.end ? fmtDay(d.trip.start) + " to " + fmtDay(d.trip.end) : "No dates yet";
+          top.append(card([
+            h("h2", { class: "title", text: d.trip.destination }),
+            h("p", { class: "desc", style: "margin:0" }, when + " ", h("button", { class: "textlink", type: "button", text: "Edit", onclick: () => { editing = true; paint(latest); } })),
+          ]));
+          return;
+        }
+        const dest = h("input", { id: "dest", class: "input", type: "text", maxlength: "80", placeholder: "Miami, Lisbon, Tokyo", value: d.trip.destination, "aria-label": "Destination" });
+        const from = h("input", { id: "d-from", class: "input", type: "date", value: d.trip.start });
+        const to = h("input", { id: "d-to", class: "input", type: "date", value: d.trip.end });
+        const err = h("span", { class: "error", role: "alert", hidden: true });
+        const go = h("button", { class: "glass glass-sm", type: "submit" }, h("span", { text: hasDest ? "Save" : "Continue" }));
+        const form = h("form", { novalidate: true }, h("div", { class: "shell" },
+          h("div", { class: "panel" },
+            h("h2", { class: "title", text: "Where are you going?" }),
+            h("div", { class: "field", style: "margin-top:16px" }, dest),
+            h("div", { class: "field row2" },
+              h("div", {}, h("label", { for: "d-from", text: "From (optional)" }), from),
+              h("div", {}, h("label", { for: "d-to", text: "To (optional)" }), to)),
+            err),
+          h("div", { class: "shell-foot" }, hasDest ? h("button", { class: "flat", type: "button", text: "Cancel", onclick: () => { editing = false; paint(latest); } }) : null, go)));
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!dest.value.trim()) { err.textContent = "Add a destination."; err.hidden = false; dest.focus(); return; }
+          go.disabled = true; err.hidden = true;
+          try { await api("/trips/" + TRIP + "/details" + qs, { destination: dest.value, start: from.value, end: to.value }); editing = false; await refresh(); }
+          catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
+        });
+        top.append(form);
+        if (!hasDest) setTimeout(() => dest.focus(), 0);
+      }
+
       function paint(d) {
         latest = d;
-        const sig = JSON.stringify(d.members.map((m) => [m.id, m.name, m.home_city, m.budget_per_night, m.is_organizer]));
+        const status = d.trip.status;
+        const gathering = status === "gathering";
+        const topKey = [editing, d.trip.destination, d.trip.start, d.trip.end].join("|");
+        if (topKey !== state.topKey) { state.topKey = topKey; renderTop(d); }
+
+        invite.hidden = !(d.trip.destination && !editing && gathering);
+        const hasOrg = d.members.some((m) => m.is_organizer);
+        const sig = JSON.stringify([hasOrg, d.members.map((m) => [m.id, m.name, m.home_city, m.budget_per_night, m.answers])]);
         if (sig !== state.sig) {
           state.sig = sig;
           members.textContent = "";
-          if (!d.members.length) members.append(h("li", {}, h("p", { class: "empty", text: "Nobody has answered yet. Send the join link to your group." })));
+          if (!hasOrg) members.append(h("li", {}, h("span", { class: "who", text: "You" }), h("span", { class: "sub" }, h("a", { class: "link-strong", href: linkTo({ trip: TRIP, admin: ADMIN, answer: 1 }), text: "Add your answers" }))));
           for (const m of d.members) {
-            members.append(h("li", {},
-              h("span", {}, h("span", { class: "who", text: m.name }), m.is_organizer ? h("span", { class: "badge", text: "Organizer" }) : null),
-              h("span", { class: "sub", text: [m.home_city, m.budget_per_night != null ? money(m.budget_per_night) + " per night" : ""].filter(Boolean).join(", ") })));
+            members.append(h("li", {}, h("details", { class: "member" },
+              h("summary", {},
+                h("span", { class: "who", text: m.name }), m.is_organizer ? h("span", { class: "badge", text: "You" }) : null,
+                h("span", { class: "sub", text: [m.home_city, m.budget_per_night != null ? money(m.budget_per_night) + " per night" : ""].filter(Boolean).join(", ") })),
+              h("p", { class: "detail", text: answersLine(m.answers || {}) }))));
           }
-          answerMine.hidden = d.members.some((m) => m.is_organizer);
         }
-        const hasOrg = d.members.some((m) => m.is_organizer);
-        const others = d.members.filter((m) => !m.is_organizer).length;
-        const steps = [
-          [!!(d.trip.destination && d.trip.start && d.trip.end), "Set the destination and dates", null],
-          [others >= 1, "Send the join link to your group", null],
-          [hasOrg, "Add your own answers", hasOrg ? null : linkTo({ trip: TRIP, admin: ADMIN, answer: 1 })],
-          [d.trip.status === "done", "Plan the trip once two travelers have answered", null],
-        ];
-        stepsList.textContent = "";
-        for (const [done, label, href] of steps) {
-          stepsList.append(h("li", { class: done ? "done" : "" }, h("span", { class: "check", "aria-hidden": "true" }),
-            href ? h("a", { href, text: label }) : label, h("span", { class: "sr-only", text: done ? " (done)" : " (to do)" })));
-        }
-        const running = d.trip.status === "planning" || d.trip.status === "awaiting";
-        const hasDest = (dest.value.trim() || d.trip.destination);
-        const ready = d.members.length >= 2 && hasDest && !running;
-        planBtn.disabled = !ready;
-        planBtn.querySelector("span").textContent = d.trip.status === "done" ? "Plan again" : "Plan our trip";
-        meta.textContent = d.members.length + (d.members.length === 1 ? " traveler" : " travelers") +
-          (running ? ". The agents are working." : d.members.length < 2 ? ". Waiting for at least two." : !hasDest ? ". Add a destination first." : ".");
+        const n = d.members.length;
+        planBtn.disabled = n < 2;
+        meta.textContent = n + " joined" + (n < 2 ? ". Plan once two have answered." : "");
+
         logCard.hidden = !d.log.length;
         renderLog(logBox, d.log, state);
         renderAction(action, d.pending, state, answer);
-        planBox.hidden = !(d.trip.status === "done" && d.plan);
-        if (!planBox.hidden) { planBox.textContent = ""; planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan)])); }
+        planBox.hidden = !(status === "done" && d.plan);
+        if (!planBox.hidden) {
+          planBox.textContent = "";
+          planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan),
+            h("button", { class: "textlink", type: "button", text: "Plan again", onclick: startPlan })]));
+        }
       }
-      async function refresh() { paint(await api("/trips/" + TRIP + "/dashboard?admin=" + encodeURIComponent(ADMIN))); }
+      async function refresh() { paint(await api("/trips/" + TRIP + "/dashboard" + qs)); }
       paint(first);
       poll(refresh);
     }
@@ -1005,8 +997,13 @@
       const logBox = h("div", { class: "log", role: "log", "aria-label": "Agent messages" });
       const logCard = h("div", { hidden: true }, card([h("h2", { class: "heading", text: "What the agents said" }), logBox]));
       remember({ id: TRIP, role: "traveler", secret: UID });
+      const copyMine = h("button", { class: "textlink", type: "button", text: "Copy my link", onclick: async () => {
+        await copyText(location.href); copyMine.textContent = "Copied"; announce("Link copied");
+        setTimeout(() => { copyMine.textContent = "Copy my link"; }, 1600);
+      } });
       app.append(card([h("h2", { class: "title", text: "Hi, " + first.user.name }), tripP, statusP],
-        h("div", { class: "shell-foot" }, h("span", { class: "meta", text: "Trip " + TRIP }), h("a", { class: "flat", href: linkTo({ trip: TRIP, new: 1 }), text: "Not you? Answer as someone else" }))),
+        h("div", { class: "shell-foot" }, h("span", { class: "meta", text: "Trip " + TRIP }),
+          copyMine, h("a", { class: "textlink", href: linkTo({ trip: TRIP, new: 1 }), text: "Not you?" }))),
         action, planBox, logCard);
 
       const state = { logLen: 0, pendingKey: "" };
