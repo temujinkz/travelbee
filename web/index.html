@@ -779,7 +779,7 @@
       enterAppView();
       if (await redirectIfJoined()) return;
       let trip, questions;
-      try { [trip, questions] = await Promise.all([api("/trips/" + TRIP), api("/questions")]); }
+      try { [trip, questions] = await Promise.all([api("/trips/" + TRIP), api("/questions?trip=" + encodeURIComponent(TRIP))]); }
       catch (e) { return showError(e.message); }
 
       const chips = (name, type) => h("div", { class: "chips" }, questions[name].map(([value, label]) =>

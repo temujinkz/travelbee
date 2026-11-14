@@ -20,6 +20,7 @@ Negotiation rules (every step is a Message in LOG):
 from __future__ import annotations
 
 import importlib
+import re
 import os
 import sys
 import unicodedata
@@ -58,16 +59,50 @@ def _wanted(u: dict) -> list[str]:
     return list(a.get("activities") or []) + (["fine-dining"] if a.get("food") == "fine-dining" else [])
 
 
+_CITY_NAMES: dict[str, str] = {}  # city slug -> home city as typed
+
+
+def _city_slug(city: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", _plain(city or "")).strip("-")
+
+
+def _flight_slots(users: list[dict]) -> list[str]:
+    """One flight per home city ("flight:paris", "flight:new-york"); a single "flight" when everyone shares one."""
+    slugs = []
+    for u in users:
+        sl = _city_slug(u.get("home_city") or "")
+        if sl and sl not in slugs:
+            slugs.append(sl)
+            _CITY_NAMES[sl] = (u.get("home_city") or "").strip()
+    return ["flight"] if len(slugs) <= 1 else [f"flight:{sl}" for sl in slugs]
+
+
 def slots_for(users: list[dict]) -> list[str]:
-    slots = ["flight", "stay", "activity:sightseeing"]  # every trip gets the destination's own highlight
+    slots = _flight_slots(users) + ["stay"]
     for u in users:
         for tag in _wanted(u):
             if f"activity:{tag}" not in slots:
                 slots.append(f"activity:{tag}")
+    if not any(s.startswith("activity:") for s in slots):
+        slots.append("activity:sightseeing")  # nobody picked one: the destination's own highlight
     return slots
 
 
+def _voters(users: list[dict], slot: str) -> list[dict]:
+    """Only travelers leaving from a city vote on that city's flight; everyone votes on the rest."""
+    if slot.startswith("flight:"):
+        return [u for u in users if _city_slug(u.get("home_city") or "") == slot.split(":", 1)[1]] or users
+    return users
+
+
+def _mine(u: dict, slot: str) -> bool:
+    return not slot.startswith("flight:") or _city_slug(u.get("home_city") or "") == slot.split(":", 1)[1]
+
+
 def label(slot: str) -> str:
+    if slot.startswith("flight:"):
+        sl = slot.split(":", 1)[1]
+        return f"Flight from {_CITY_NAMES.get(sl) or sl.replace('-', ' ').title()}"
     if slot.startswith("activity:"):
         return slot.split(":", 1)[1].replace("-", " ").capitalize()
     return slot.capitalize()
@@ -79,12 +114,14 @@ def price(o: dict) -> str:
 
 
 def _type(slot: str) -> str:
-    return "activity" if slot.startswith("activity:") else slot
+    return "activity" if slot.startswith("activity:") else "flight" if slot.startswith("flight") else slot
 
 
 def _fits(option: dict, slot: str) -> bool:
     if option["type"] != _type(slot):
         return False
+    if slot.startswith("flight:"):
+        return f"from:{slot.split(':', 1)[1]}" in option.get("tags", [])
     return not slot.startswith("activity:") or slot.split(":", 1)[1] in option.get("tags", [])
 
 
@@ -101,7 +138,9 @@ def _per_person(trip: dict, plan: dict) -> float:
         nights = max(1, (date.fromisoformat(trip["end"]) - date.fromisoformat(trip["start"])).days)
     except (KeyError, ValueError):
         nights = 1
-    return sum(o["price"] * (nights if o["type"] == "stay" else 1) for o in plan.values() if o)
+    flights = [o["price"] for o in plan.values() if o and o["type"] == "flight"]
+    rest = sum(o["price"] * (nights if o["type"] == "stay" else 1) for o in plan.values() if o and o["type"] != "flight")
+    return rest + (sum(flights) / len(flights) if flights else 0)  # each traveler pays their own flight
 
 
 def _candidates(st: dict, slot: str) -> list[dict]:
@@ -113,11 +152,12 @@ def _candidates(st: dict, slot: str) -> list[dict]:
 def _request(trip: dict, users: list[dict], slot: str, constrained: bool) -> dict:
     t = _type(slot)
     where = f"{trip['destination']}, {trip['start']} to {trip['end']}"
-    query = {"flight": f"round-trip flights from {users[0].get('home_city', '')} to {where}",
+    origin = _CITY_NAMES.get(slot.split(":", 1)[1], "") if slot.startswith("flight:") else (users[0].get("home_city") or "")
+    query = {"flight": f"round-trip flights from {origin} to {where}",
              "stay": f"stay for {len(users)} people in {where}"}.get(t, f"{label(slot).lower()} near {trip['destination']}")
     req = {"type": t, "query": query, "max_price": None, "avoid_tags": [],
            "tag": slot.split(":", 1)[1] if t == "activity" else None,      # new Researcher: activity tag
-           "origin": users[0].get("home_city") or "", "destination": trip["destination"]}
+           "origin": origin, "destination": trip["destination"]}
     if constrained:
         budgets = [u["budget_per_night"] for u in users if u.get("budget_per_night")]
         if t != "flight" and budgets:
@@ -139,7 +179,10 @@ def _research(trip: dict, users: list[dict], slots: list[str], rnd: int, constra
     found = {}
     for slot, req in reqs.items():
         try:
-            results = [o for o in researcher.research(trip, req) if _fits(o, slot)]
+            results = researcher.research(trip, req)
+            if slot.startswith("flight:"):  # remember which home city this fare leaves from
+                results = [dict(o, tags=list(o.get("tags", [])) + [f"from:{slot.split(':', 1)[1]}"]) for o in results]
+            results = [o for o in results if _fits(o, slot)]
         except Exception as exc:  # e.g. a Superlinked / Keenable outage: keep negotiating the other slots
             print(f"[coordinator] research failed for {slot}: {exc}", flush=True)
             results = []
@@ -189,14 +232,15 @@ def _negotiate(trip: dict, users: list[dict], slots: list[str], plan: dict, ask_
         blocked = []
         for slot in open_slots:
             cands = _candidates(st, slot)
-            votes, tops, vetoes = _collect(users, cands, rnd)
+            voters = _voters(users, slot)
+            votes, tops, vetoes = _collect(voters, cands, rnd)
             st["vetoes"][slot] = vetoes
             feasible = [o for o in cands if not vetoes.get(o["id"])]
             if not feasible:
                 blocked.append(slot)
                 continue
             best = max(feasible, key=lambda o: (votes.get(o["id"], 0), -o["price"]))
-            _concessions(st, users, best, tops, vetoes, rnd)
+            _concessions(st, voters, best, tops, vetoes, rnd)
             plan[slot] = best
             n = votes.get(best["id"], 0)
             post(Message(rnd, "coordinator", "all", "decision",
@@ -218,6 +262,16 @@ def _deadlock(trip: dict, users: list[dict], slot: str, plan: dict, ask_human, r
     st = _STATE[trip["id"]]
     cands = _candidates(st, slot)
     if not cands:
+        alt = _alternative(trip, st, slot)
+        if alt:  # plan B: another activity this destination offers
+            post(Message(rnd, "coordinator", "all", "decision",
+                         f"{label(slot)}: nothing fits everyone's limits, so the agents try {label(alt).lower()} instead"))
+            if slot in st["slots"]:
+                st["slots"][st["slots"].index(slot)] = alt
+            plan.pop(slot, None)
+            _research(trip, users, [alt], rnd, constrained=False)
+            _negotiate(trip, users, [alt], plan, ask_human, start_round=rnd + 1)
+            return
         plan[slot] = None
         post(Message(rnd, "coordinator", "all", "decision", f"{label(slot)}: no options found, skipped"))
         return
@@ -245,6 +299,20 @@ def _deadlock(trip: dict, users: list[dict], slot: str, plan: dict, ask_human, r
     post(Message(rnd, "coordinator", "all", "decision", text, [chosen["id"]] if chosen else []))
     for ds in [f"trip_{trip['id']}"] + [f"user_{uid}" for uid in overridden]:
         memory.remember(ds, text)
+
+
+def _alternative(trip: dict, st: dict, slot: str) -> str | None:
+    """Next activity from the destination's list that isn't planned or tried yet (at most 2 swaps per trip)."""
+    if not slot.startswith("activity:") or st["alternatives"] >= 2:
+        return None
+    st["tried"].add(slot)
+    for sl, _label in trip.get("activities") or []:
+        cand = f"activity:{sl}"
+        if cand not in st["slots"] and cand not in st["tried"]:
+            st["alternatives"] += 1
+            st["tried"].add(cand)
+            return cand
+    return None
 
 
 # ---------------------------------------------------------------- approval + re-plan
@@ -311,7 +379,7 @@ def _checks(u: dict, plan: dict, st: dict) -> list[str]:
     if stay and budget:
         out.append(("✓" if stay["price"] <= budget else "✗") + f" stay {price(stay)} (limit ${budget})")
     for d in u["answers"].get("dealbreakers", []):
-        hits = [s for s, o in plan.items() if o and d in o.get("tags", [])]
+        hits = [s for s, o in plan.items() if o and d in o.get("tags", []) and _mine(u, s)]
         if not hits:
             out.append(f"✓ no {d}")
         elif all(u["id"] in st["overrides"].get(s, []) for s in hits):
@@ -324,17 +392,19 @@ def _checks(u: dict, plan: dict, st: dict) -> list[str]:
 
 
 def run_trip(trip: dict, users: list[dict], ask_human) -> dict:
-    _STATE[trip["id"]] = {"options": {}, "rejected": set(), "vetoes": {}, "overrides": {}, "conceded": set(), "round": 1}
+    _STATE[trip["id"]] = {"options": {}, "rejected": set(), "vetoes": {}, "overrides": {}, "conceded": set(), "round": 1,
+                          "tried": set(), "alternatives": 0}
     st = _STATE[trip["id"]]
     if os.getenv("TRANSPORT") == "band":
         import band
 
         band.assign_seats(users)  # each traveler's messages are posted by their own Advocate on Band
     slots = slots_for(users)
+    st["slots"] = slots  # plan B can swap an activity slot for another one
     plan: dict = {}
-    _research(trip, users, slots, 1, constrained=False)
-    _negotiate(trip, users, slots, plan, ask_human, start_round=1)
-    plan = {s: plan.get(s) for s in slots}
+    _research(trip, users, list(slots), 1, constrained=False)
+    _negotiate(trip, users, list(slots), plan, ask_human, start_round=1)
+    plan = {s: plan.get(s) for s in st["slots"]}
     while (rejection := _ask_approval(trip, users, plan, ask_human)) is not None:
         plan = replan(trip, users, plan, rejection, ask_human)
     lines = [f"{u['name']}: {', '.join(_checks(u, plan, st))}" for u in users]

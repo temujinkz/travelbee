@@ -136,10 +136,36 @@ def apply_details(t, body):
     t["destination"], t["start"], t["end"] = dest, start, end
 
 
-def clean_answers(raw):
+def trip_activities(t):
+    """Activities proposed for this trip's destination (activities.py), generated once and kept in the trip file."""
+    dest = t.get("destination") or ""
+    if t.get("activities") and t.get("activities_for") == dest:
+        return t["activities"]
+    root = str(WEB.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import protocol  # noqa: F401  (loads .env)
+    import activities
+
+    acts = activities.for_destination(dest)
+    with LOCK:
+        fresh = need_trip(t["id"])
+        fresh["activities"], fresh["activities_for"] = acts, dest
+        save_trip(fresh)
+    return acts
+
+
+def questions_for(t):
+    q = dict(QUESTIONS)
+    if t is not None:
+        q["activities"] = trip_activities(t)
+    return q
+
+
+def clean_answers(raw, t=None):
     raw = raw if isinstance(raw, dict) else {}
     out = {}
-    for key, options in QUESTIONS.items():
+    for key, options in questions_for(t).items():
         allowed = {o[0] for o in options}
         v = raw.get(key)
         if key in SINGLE:
@@ -229,7 +255,8 @@ def route(method, path, q, body):
     one = lambda k: (q.get(k) or [""])[0]
 
     if method == "GET" and parts == ["questions"]:
-        return QUESTIONS
+        tid = one("trip")
+        return questions_for(need_trip(tid) if tid else None)
 
     if method == "POST" and parts == ["trips"]:
         t = {
@@ -242,6 +269,7 @@ def route(method, path, q, body):
         apply_details(t, body)
         with LOCK:
             save_trip(t)
+        threading.Thread(target=trip_activities, args=(t,), daemon=True).start()
         return {"trip_id": t["id"], "admin_token": t["admin_token"]}
 
     if len(parts) >= 2 and parts[0] == "trips":
@@ -275,6 +303,7 @@ def route(method, path, q, body):
                 t = need_trip(t["id"])
                 apply_details(t, body)
                 save_trip(t)
+            threading.Thread(target=trip_activities, args=(t,), daemon=True).start()
             return public_trip(t)
 
         if method == "POST" and rest == ["users"]:
@@ -296,7 +325,7 @@ def route(method, path, q, body):
                 u = {
                     "id": secrets.token_urlsafe(9), "trip_id": t["id"], "name": name,
                     "budget_per_night": budget, "home_city": clean(body.get("home_city"), 80),
-                    "answers": clean_answers(body.get("answers")), "is_organizer": organizer,
+                    "answers": clean_answers(body.get("answers"), t), "is_organizer": organizer,
                     "created_at": time.time(),
                 }
                 save_user(u)
