@@ -1,0 +1,4 @@
+data/trips/
+data/users/
+__pycache__/
+*.pyc

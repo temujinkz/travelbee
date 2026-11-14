@@ -6,7 +6,7 @@
   <title>Travelbee</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Hanken+Grotesk:wght@900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Hanken+Grotesk:wght@900&display=swap" rel="stylesheet">
   <style>
     /* Tokens follow the Glaze system (design.how/systems/glaze): ink and paper, greys as ink at alphas,
        glass only on the one button a group leads with, no shadows, pill controls. */
@@ -17,11 +17,14 @@
       --text-1: rgb(5 5 5 / .80);
       --text-2: rgb(5 5 5 / .60);
       --text-3: rgb(5 5 5 / .45);
+      --text-disabled: rgb(5 5 5 / .32);
       --line-faint: rgb(5 5 5 / .06);
       --line: rgb(5 5 5 / .10);
       --line-control: rgb(5 5 5 / .15);
       --line-focus: rgb(5 5 5 / .32);
       --hover: rgb(5 5 5 / .05);
+      --field: #f4f4f3;
+      --flat-hover: #f8f8f8;
       --fail: #e35e49;
 
       --glass-ink-base: rgb(0 0 0 / .66);
@@ -47,7 +50,8 @@
       --radius-shell: 14px;
       --radius-panel: 11px;
       --radius-pill: 999px;
-      --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --radius-tag: 6px;
+      --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     }
 
     * { box-sizing: border-box; }
@@ -63,14 +67,17 @@
       color: var(--text-1);
       font: 400 14px/1.5 var(--font-sans);
     }
+    body { overflow-x: clip; }
+    body.app-view { place-items: start center; }
     main { width: 100%; max-width: 520px; display: flex; flex-direction: column; align-items: center; gap: 40px; }
-    body.form-view main { max-width: 480px; gap: 24px; }
+    body.app-view main { max-width: 560px; gap: 20px; }
+    .stack { width: 100%; display: flex; flex-direction: column; gap: 16px; }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
     /* ---------- title (halftone, adapted from the ARC landing page) ---------- */
     h1.brand { margin: 0; width: 100%; }
     .halftone { display: block; width: 100%; height: clamp(150px, 44vw, 250px); }
-    body.form-view .halftone { height: clamp(84px, 24vw, 130px); }
+    body.app-view .halftone { height: clamp(84px, 24vw, 120px); }
 
     /* ---------- glass: the Glaze press recipe, one glass button per group ---------- */
     .glass {
@@ -96,6 +103,7 @@
       white-space: nowrap;
       cursor: pointer;
       user-select: none;
+      text-decoration: none;
       -webkit-tap-highlight-color: transparent;
       color: var(--gl-text);
       background-color: var(--gl-base);
@@ -115,41 +123,76 @@
     }
     .glass-green { --gl-base: var(--glass-green-base); --gl-text: var(--glass-green-text); --gl-ring: var(--glass-green-ring); }
     .glass-sm { --glass-h: 40px; padding: 0 22px; font-size: 14px; }
-    /* rim: 1px banded gradient masked to the edge */
     .glass::before {
       content: "";
-      position: absolute;
-      z-index: -1;
-      pointer-events: none;
-      inset: 0;
-      padding: 1px;
-      border-radius: inherit;
+      position: absolute; z-index: -1; pointer-events: none;
+      inset: 0; padding: 1px; border-radius: inherit;
       background-image: linear-gradient(var(--gl-rim-a) 0%, var(--gl-rim-b) 55%, var(--gl-rim-a) 80%, var(--gl-rim-b) 95%);
       opacity: var(--glass-rim);
       -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
       -webkit-mask-composite: xor;
       mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
     }
-    /* catch-light: a bright pill across the top half */
     .glass::after {
       content: "";
-      position: absolute;
-      z-index: -1;
-      pointer-events: none;
+      position: absolute; z-index: -1; pointer-events: none;
       inset-inline: calc(var(--glass-h) * var(--gloss-inset));
-      top: var(--gloss-top);
-      height: var(--gloss-height);
+      top: var(--gloss-top); height: var(--gloss-height);
       border-radius: var(--radius-pill);
       background-image: linear-gradient(rgb(255 255 255 / var(--glass-gloss)), transparent);
       transition: opacity 200ms var(--ease-out);
     }
-    @media (hover: hover) { .glass:hover { --gl-sheen-now: var(--glass-sheen-hover); } }
-    .glass:active { --gl-sheen-now: 0; --gl-core-now: var(--glass-core-held); scale: var(--scale-press-glass); transition-duration: 50ms; }
-    .glass:active::after { opacity: .6; }
+    @media (hover: hover) { .glass:hover:not(:disabled) { --gl-sheen-now: var(--glass-sheen-hover); } }
+    .glass:active:not(:disabled) { --gl-sheen-now: 0; --gl-core-now: var(--glass-core-held); scale: var(--scale-press-glass); transition-duration: 50ms; }
+    .glass:active:not(:disabled)::after { opacity: .6; }
+    /* disabled glass drops to a flat grey pill */
+    .glass:disabled { background-image: none; background-color: var(--field); box-shadow: 0 0 0 1px var(--line-faint); color: var(--text-disabled); cursor: not-allowed; -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .glass:disabled::before, .glass:disabled::after { display: none; }
     .glass svg { width: 22px; height: 22px; flex: none; }
     .glass-sm svg { width: 16px; height: 16px; }
 
-    :where(button, input, textarea):focus-visible { outline: 2px solid var(--text-1); outline-offset: 2px; }
+    :where(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--text-1); outline-offset: 2px; }
+
+    /* ---------- AI lights (design.how/vault/ai-lights): one pulse of rim light around a pressed button ---------- */
+    @property --ai-deg-start { syntax: "<angle>"; inherits: false; initial-value: 180deg; }
+    @property --ai-stop-2 { syntax: "<angle>"; inherits: false; initial-value: 16deg; }
+    @property --ai-stop-3 { syntax: "<angle>"; inherits: false; initial-value: 30deg; }
+    @property --ai-stop-4 { syntax: "<angle>"; inherits: false; initial-value: 43deg; }
+    @property --ai-stop-5 { syntax: "<angle>"; inherits: false; initial-value: 59deg; }
+    @property --ai-stop-6 { syntax: "<angle>"; inherits: false; initial-value: 72deg; }
+    @property --ai-stop-7 { syntax: "<angle>"; inherits: false; initial-value: 84deg; }
+    .ail-layer { position: absolute; z-index: -1; pointer-events: none; mask-repeat: no-repeat; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; -webkit-mask-size: 100% 100%; }
+    .ail-layer::before {
+      content: ""; position: absolute; inset: 0; opacity: 0;
+      background: conic-gradient(from var(--ai-deg-start) at 50% 50%,
+        var(--ai-c1, #005bf6) 0deg, var(--ai-c2, #b0c6e9) var(--ai-stop-2), var(--ai-c3, #feca00) var(--ai-stop-3),
+        var(--ai-c4, #ff1c11) var(--ai-stop-4), var(--ai-c5, #ff00ea) var(--ai-stop-5), var(--ai-c6, #ffa2fbcc) var(--ai-stop-6),
+        transparent var(--ai-stop-7), transparent 324deg, var(--ai-tail, #95c1ffa1) 349deg, var(--ai-c1, #005bf6) 360deg);
+    }
+    [data-playing="true"] > .ail-layer::before { will-change: opacity; animation: ail-pulse 1600ms cubic-bezier(.26, .94, .6, 1) both; }
+    @keyframes ail-pulse {
+      0% { opacity: 0; }
+      10%, 30% { opacity: 1; animation-timing-function: linear; }
+      88% { opacity: 0; animation-timing-function: linear; }
+      100% { opacity: 0; --ai-deg-start: 30deg; --ai-stop-2: 6deg; --ai-stop-3: 11deg; --ai-stop-4: 17deg; --ai-stop-5: 40deg; --ai-stop-6: 90deg; --ai-stop-7: 120deg; }
+    }
+    @media (prefers-reduced-motion: reduce) { [data-playing="true"] > .ail-layer::before { animation: none; } }
+
+    /* ---------- flat secondary button ---------- */
+    .flat {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      height: 40px; padding: 0 18px;
+      border: 0; border-radius: var(--radius-pill);
+      background: var(--paper); color: var(--text-1);
+      box-shadow: 0 0 0 1px var(--line);
+      font: 500 14px/1.35 var(--font-sans);
+      white-space: nowrap; text-decoration: none; cursor: pointer;
+      transition: background-color 120ms var(--ease-out), scale 120ms var(--ease-out);
+    }
+    .flat:hover { background: var(--flat-hover); }
+    .flat:active { scale: .99; }
+    .flat:disabled { background: var(--field); color: var(--text-disabled); cursor: not-allowed; }
+    .flat svg { width: 16px; height: 16px; }
 
     /* ---------- ghost icon buttons ---------- */
     .actions { display: flex; gap: 4px; min-height: 40px; margin-top: -16px; }
@@ -158,26 +201,31 @@
       width: 40px; height: 40px;
       border: 0; border-radius: var(--radius-pill);
       background: transparent; color: var(--text-2);
-      cursor: pointer;
+      cursor: pointer; text-decoration: none;
       transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out), scale 120ms var(--ease-out);
     }
     .ghost:hover { background: var(--hover); color: var(--text-1); }
     .ghost:active { scale: .97; }
     .ghost svg { width: 20px; height: 20px; }
+    .error-line { margin: -16px 0 0; font-size: 13px; color: var(--fail); text-align: center; }
 
-    /* ---------- questionnaire: shell card, panel, footer ---------- */
+    /* ---------- shell card, panel, footer ---------- */
     .shell { width: 100%; background: var(--shell); border-radius: var(--radius-shell); padding: 3px; }
-    .panel { background: var(--paper); border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--line-faint); padding: 20px 20px 8px; }
-    .shell-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px; padding-inline-start: 14px; }
+    .panel { background: var(--paper); border-radius: var(--radius-panel); box-shadow: 0 0 0 1px var(--line-faint); padding: 20px; }
+    .panel.tight-bottom { padding-bottom: 8px; }
+    .shell-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px; padding-inline-start: 14px; }
     .shell-foot .meta { margin-inline-end: auto; font: 400 12px/1.35 var(--font-sans); color: var(--text-2); }
-    .shell-foot .meta code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; }
     h2.title { margin: 0 0 4px; font: 500 28px/1.2 var(--font-sans); letter-spacing: -.01em; }
-    p.desc { margin: 0 0 20px; color: var(--text-2); font-size: 14px; }
+    h2.heading { margin: 0 0 12px; font: 500 20px/1.3 var(--font-sans); }
+    p.desc { margin: 0 0 20px; color: var(--text-2); }
+    p.note { margin: 0; color: var(--text-2); font-size: 13px; }
 
     .field { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
     .field > label, .field > legend { display: block; padding: 0; margin-bottom: 8px; font: 500 13px/1.35 var(--font-sans); color: var(--text-1); }
     .field .hint { display: block; margin-top: 6px; font-size: 12px; color: var(--text-2); }
     .field .error { display: block; margin-top: 6px; font-size: 12px; color: var(--fail); }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 420px) { .row2 { grid-template-columns: 1fr; } }
     .input {
       width: 100%; height: 36px; padding: 0 14px;
       border: 0; border-radius: var(--radius-pill);
@@ -187,9 +235,10 @@
       transition: box-shadow 120ms var(--ease-out);
     }
     .input::placeholder { color: var(--text-3); }
-    .input:hover { box-shadow: 0 0 0 1px var(--line-focus); }
-    .input:focus { box-shadow: 0 0 0 1px var(--line-focus); }
+    .input:hover, .input:focus { box-shadow: 0 0 0 1px var(--line-focus); }
     .input[aria-invalid="true"] { box-shadow: 0 0 0 1px var(--fail); }
+    .input.area { height: auto; padding: 8px 14px; border-radius: 10px; resize: vertical; min-height: 64px; }
+    select.input { appearance: none; padding-right: 32px; background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%), linear-gradient(135deg, var(--text-2) 50%, transparent 50%); background-position: calc(100% - 18px) 15px, calc(100% - 13px) 15px; background-size: 5px 5px; background-repeat: no-repeat; }
 
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .chip { position: relative; }
@@ -198,21 +247,61 @@
       display: inline-flex; align-items: center; height: 32px; padding: 0 14px;
       border-radius: var(--radius-pill);
       font: 500 13px/1.35 var(--font-sans); color: var(--text-1);
-      box-shadow: 0 0 0 1px var(--line-control);
-      background: var(--paper);
+      box-shadow: 0 0 0 1px var(--line-control); background: var(--paper);
       transition: background-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
     }
     .chip:hover span { background: var(--hover); }
     .chip input:checked + span { box-shadow: 0 0 0 1.5px var(--text-1); background: var(--hover); }
     .chip input:focus-visible + span { outline: 2px solid var(--text-1); outline-offset: 2px; }
 
-    .done { padding: 12px 0 20px; }
-    .done h2 { margin: 0 0 6px; font: 500 20px/1.3 var(--font-sans); }
-    .done p { margin: 0; color: var(--text-2); }
+    .link-row { display: flex; align-items: center; gap: 4px; }
+    .link-row .input { flex: 1; min-width: 0; }
+
+    /* ---------- travelers list ---------- */
+    .rows { list-style: none; margin: 0; padding: 0; }
+    .rows li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line-faint); }
+    .rows li:first-child { border-top: 0; padding-top: 0; }
+    .rows .who { font-weight: 500; }
+    .rows .sub { color: var(--text-2); font-size: 13px; margin-inline-start: auto; text-align: right; }
+    .badge { display: inline-block; padding: 0 8px; height: 20px; line-height: 20px; border-radius: var(--radius-pill); font: 500 12px/20px var(--font-sans); color: var(--text-2); box-shadow: 0 0 0 1px var(--line); margin-inline-start: 8px; }
+    .empty { color: var(--text-2); margin: 0; }
+
+    /* ---------- plan, log ---------- */
+    .plan-list { list-style: none; margin: 0 0 16px; padding: 0; }
+    .plan-list li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line-faint); }
+    .plan-list li:first-child { border-top: 0; }
+    .plan-list .kind { width: 72px; flex: none; color: var(--text-2); font-size: 13px; }
+    .plan-list .what { flex: 1; min-width: 0; }
+    .plan-list .price { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+    .log { max-height: 340px; overflow: auto; margin: 0 -4px; padding: 0 4px; }
+    .msg { padding: 8px 0; border-top: 1px solid var(--line-faint); }
+    .msg:first-child { border-top: 0; }
+    .msg .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+    .msg .tag { padding: 0 8px; height: 18px; line-height: 18px; border-radius: var(--radius-pill); box-shadow: 0 0 0 1px var(--line); font-size: 11px; }
+    .msg .tag.objection { color: var(--fail); box-shadow: 0 0 0 1px var(--fail); }
+    .msg .text { margin-top: 2px; }
+    .choice-list { display: flex; flex-direction: column; gap: 8px; align-items: stretch; margin-bottom: 4px; }
+    .choice-list .flat { justify-content: flex-start; height: 44px; padding: 0 18px; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .waiting { display: flex; align-items: center; gap: 10px; color: var(--text-2); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); animation: pulse 1.2s ease-in-out infinite; flex: none; }
+    @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+
+    .steps { list-style: none; margin: 4px 0 16px; padding: 0; }
+    .steps li { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+    .steps .check { position: relative; width: 18px; height: 18px; flex: none; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--line-focus); }
+    .steps .done { color: var(--text-2); }
+    .steps .done .check { background: var(--text-1); box-shadow: none; }
+    .steps .done .check::after { content: ""; position: absolute; left: 6px; top: 3px; width: 4px; height: 8px; border: solid #fff; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+    .steps a { color: var(--text-1); text-underline-offset: 3px; }
+    .trip-link { display: flex; align-items: baseline; gap: 12px; width: 100%; color: inherit; text-decoration: none; }
+    .trip-link:hover .who { text-decoration: underline; text-underline-offset: 3px; }
+    #trips { max-width: 520px; }
 
     @media (prefers-reduced-motion: reduce) {
-      .glass, .ghost, .input, .chip span { transition: none; }
-      .glass:active, .ghost:active { scale: 1; }
+      .glass, .ghost, .flat, .input, .chip span { transition: none; }
+      .glass:active, .ghost:active, .flat:active { scale: 1; }
+      .dot { animation: none; }
     }
     @media (forced-colors: active) {
       .glass { background-image: none; box-shadow: none; border: 1px solid ButtonText; }
@@ -224,7 +313,7 @@
   <main>
     <h1 class="brand"><span class="sr-only">Travelbee</span><canvas id="title" class="halftone" aria-hidden="true"></canvas></h1>
 
-    <!-- View 1: create the shareable link -->
+    <!-- Landing: create a trip and get the join link -->
     <section id="view-create" style="display:contents">
       <button id="generate" class="glass glass-green" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -233,70 +322,123 @@
         </svg>
         <span>Generate a travel link</span>
       </button>
-
+      <p id="create-error" class="error-line" role="alert" hidden></p>
       <div id="actions" class="actions" hidden>
-        <button id="copy" class="ghost" type="button" aria-label="Copy link">
-          <svg id="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="9" y="9" width="12" height="12" rx="3"/>
-            <path d="M5 15V6a3 3 0 0 1 3-3h9"/>
-          </svg>
-        </button>
-        <button id="share" class="ghost" type="button" aria-label="Share link">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 15V3"/>
-            <path d="m7.5 7.5 4.5-4.5 4.5 4.5"/>
-            <path d="M5 12v6a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-6"/>
-          </svg>
-        </button>
+        <button id="copy" class="ghost" type="button" aria-label="Copy join link" title="Copy join link"></button>
+        <button id="share" class="ghost" type="button" aria-label="Share join link" title="Share join link"></button>
+        <a id="org-link" class="ghost" aria-label="Open organizer view" title="Open organizer view"></a>
       </div>
+      <section id="trips" class="stack" hidden aria-label="Your trips"></section>
     </section>
 
-    <!-- View 2: the questionnaire a traveler sees when they open the link -->
-    <section id="view-form" hidden style="width:100%">
-      <form id="form" novalidate>
-        <div class="shell">
-          <div class="panel" id="panel">
-            <h2 class="title">Tell us how you travel</h2>
-            <p class="desc">A few quick questions so the plan fits everyone in your group.</p>
-
-            <div class="field">
-              <label for="name">Name</label>
-              <input id="name" class="input" name="name" type="text" autocomplete="given-name" placeholder="Your first name" required aria-describedby="name-error">
-              <span id="name-error" class="error" hidden>Add your name so the group knows who you are.</span>
-            </div>
-
-            <div class="field">
-              <label for="home_city">Home city</label>
-              <input id="home_city" class="input" name="home_city" type="text" autocomplete="address-level2" placeholder="Where are you flying from?">
-            </div>
-
-            <div class="field">
-              <label for="budget_per_night">Budget per night</label>
-              <input id="budget_per_night" class="input" name="budget_per_night" type="number" inputmode="numeric" min="0" step="5" placeholder="150" aria-describedby="budget-hint">
-              <span id="budget-hint" class="hint">In US dollars, for your own bed.</span>
-            </div>
-
-            <fieldset class="field"><legend>Pace</legend><div class="chips" data-name="pace" data-type="radio"></div></fieldset>
-            <fieldset class="field"><legend>Spending style</legend><div class="chips" data-name="budget" data-type="radio"></div></fieldset>
-            <fieldset class="field"><legend>Food</legend><div class="chips" data-name="food" data-type="radio"></div></fieldset>
-            <fieldset class="field"><legend>Activities you want</legend><div class="chips" data-name="activities" data-type="checkbox"></div></fieldset>
-            <fieldset class="field"><legend>Where you stay</legend><div class="chips" data-name="lodging" data-type="radio"></div></fieldset>
-            <fieldset class="field"><legend>Dealbreakers</legend><div class="chips" data-name="dealbreakers" data-type="checkbox"></div></fieldset>
-          </div>
-          <div class="shell-foot">
-            <span class="meta">Trip <code id="trip-id"></code></span>
-            <button class="glass glass-sm" type="submit"><span>Send</span></button>
-          </div>
-        </div>
-      </form>
-    </section>
-
+    <!-- Every other screen is drawn into this container -->
+    <section id="app" class="stack" hidden></section>
     <div id="status" class="sr-only" role="status" aria-live="polite"></div>
   </main>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const tripParam = new URLSearchParams(location.search).get("trip");
+    const params = new URLSearchParams(location.search);
+    const TRIP = params.get("trip"), ADMIN = params.get("admin"), UID = params.get("u"), ANSWER_MODE = params.get("answer"), NEW = params.get("new");
+
+    /* ---------------- small helpers ---------------- */
+    function h(tag, props, ...kids) {
+      const el = document.createElement(tag);
+      for (const [k, v] of Object.entries(props || {})) {
+        if (v === false || v == null) continue;
+        if (k === "class") el.className = v;
+        else if (k === "text") el.textContent = v;
+        else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+        else el.setAttribute(k, v === true ? "" : v);
+      }
+      for (const c of kids.flat()) { if (c == null || c === false) continue; el.append(c.nodeType ? c : document.createTextNode(c)); }
+      return el;
+    }
+    const svg = (inner) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+    const ICON = {
+      copy: svg('<rect x="9" y="9" width="12" height="12" rx="3"/><path d="M5 15V6a3 3 0 0 1 3-3h9"/>'),
+      check: svg('<polyline points="4 12.5 9.5 18 20 6.5"/>'),
+      share: svg('<path d="M12 15V3"/><path d="m7.5 7.5 4.5-4.5 4.5 4.5"/><path d="M5 12v6a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-6"/>'),
+      organizer: svg('<rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/>'),
+    };
+    const announce = (msg) => { $("status").textContent = msg; };
+
+    async function api(path, body) {
+      const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+      let res;
+      try { res = await fetch("/api" + path, opts); } catch { throw new Error("Could not reach the server."); }
+      let data = {};
+      try { data = await res.json(); } catch {}
+      if (!res.ok) { const err = new Error(data.error || "Something went wrong."); err.status = res.status; throw err; }
+      return data;
+    }
+    function linkTo(extra) {
+      const u = new URL(location.href);
+      u.search = ""; u.hash = "";
+      for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
+      return u.toString();
+    }
+    async function copyText(text) {
+      try { await navigator.clipboard.writeText(text); }
+      catch {
+        const t = document.createElement("textarea");
+        t.value = text; document.body.appendChild(t); t.select();
+        document.execCommand("copy"); t.remove();
+      }
+    }
+    const fmtDay = (s) => s ? new Date(s + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    const tripLine = (t) => {
+      const where = t.destination || "Destination to be decided";
+      const when = t.start && t.end ? fmtDay(t.start) + " to " + fmtDay(t.end) : t.start ? "from " + fmtDay(t.start) : "";
+      return when ? where + ", " + when : where;
+    };
+    const actor = (a) => {
+      if (a === "all") return "everyone";
+      if (a === "organizer") return "the organizer";
+      const [kind, name] = a.split(/:(.*)/s);
+      if (kind === "advocate") return name + "'s advocate";
+      if (kind === "human") return name === "organizer" ? "the organizer" : name;
+      return kind.charAt(0).toUpperCase() + kind.slice(1);
+    };
+    const money = (n) => "$" + Number(n).toLocaleString();
+
+    /* The trips this browser has made or joined, so a closed tab never loses the way back.
+       Stored on this device only: { id, role: "organizer" | "traveler", secret: organizer secret or personal id }. */
+    const REG_KEY = "travelbee:trips";
+    function loadReg() {
+      try { const v = JSON.parse(localStorage.getItem(REG_KEY) || "[]"); return Array.isArray(v) ? v.filter((e) => e && e.id && e.role && e.secret) : []; }
+      catch { return []; }
+    }
+    function remember(entry) {
+      try {
+        const reg = loadReg().filter((e) => !(e.id === entry.id && e.role === entry.role));
+        reg.unshift({ id: entry.id, role: entry.role, secret: entry.secret });
+        localStorage.setItem(REG_KEY, JSON.stringify(reg.slice(0, 20)));
+      } catch {}
+    }
+    function forget(id, role) {
+      try { localStorage.setItem(REG_KEY, JSON.stringify(loadReg().filter((e) => !(e.id === id && e.role === role)))); } catch {}
+    }
+    const entryLink = (e) => e.role === "organizer" ? linkTo({ trip: e.id, admin: e.secret }) : linkTo({ trip: e.id, u: e.secret });
+
+    async function renderTrips() {
+      const box = $("trips");
+      box.textContent = "";
+      const rows = [];
+      for (const e of loadReg().slice(0, 8)) {
+        try { rows.push({ e, t: await api("/trips/" + e.id) }); }
+        catch (err) { if (err.status === 404) forget(e.id, e.role); }
+      }
+      box.hidden = !rows.length;
+      if (!rows.length) return;
+      box.append(card([
+        h("h2", { class: "heading", text: "Your trips" }),
+        h("ul", { class: "rows" }, rows.map(({ e, t }) => h("li", {},
+          h("a", { class: "trip-link", href: entryLink(e) },
+            h("span", {}, h("span", { class: "who", text: t.destination || "Trip " + e.id }), h("span", { class: "badge", text: e.role === "organizer" ? "Organizer" : "Traveler" })),
+            h("span", { class: "sub", text: t.start && t.end ? fmtDay(t.start) + " to " + fmtDay(t.end) : t.member_count + (t.member_count === 1 ? " traveler" : " travelers") }))))),
+      ]));
+    }
 
     /* ---------------- halftone title (adapted from the ARC landing page) ---------------- */
     (() => {
@@ -399,132 +541,504 @@
       });
     })();
 
-    /* ---------------- view 1: generate, copy, share ---------------- */
-    let currentLink = "";
-    const CHECK = '<polyline points="4 12.5 9.5 18 20 6.5"/>';
-    const COPY = '<rect x="9" y="9" width="12" height="12" rx="3"/><path d="M5 15V6a3 3 0 0 1 3-3h9"/>';
+    /* ---------------- AI lights: one pulse of rim light (ported from design.how/vault/ai-lights) ---------------- */
+    const AIL = (() => {
+      const PULSE_MS = 1600, ARC_MIN = 90, ARC_MAX = 190, MASK_SETTLE_MS = 90;
+      const RIM_STOPS = [
+        { color: "#000", stop: 54 }, { color: "transparent", stop: 126 }, { color: "transparent", stop: 333 },
+        { color: "rgba(0,0,0,0.10)", stop: 347 }, { color: "#000", stop: 360 },
+      ];
+      const RIM_LAYERS = [
+        { strokeWidth: 0, blur: 0, alpha: 1, ring: 1 }, { strokeWidth: 4, blur: 4, alpha: 0.3 }, { strokeWidth: 8, blur: 8, alpha: 0.2 },
+        { strokeWidth: 16, blur: 12, alpha: 0.1 }, { strokeWidth: 20, blur: 20, alpha: 0.32 },
+      ];
+      const cache = new Map();
+      let scratch = null;
+      const padOf = (sw, blur) => Math.ceil(sw + blur * 3);
 
-    function makeTripId() {
-      const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"; // no look-alike characters
-      const bytes = crypto.getRandomValues(new Uint8Array(8));
-      return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
-    }
-
-    $("generate").addEventListener("click", () => {
-      const url = new URL(location.href);
-      url.search = ""; url.hash = "";
-      url.searchParams.set("trip", makeTripId());
-      currentLink = url.toString();
-      $("actions").hidden = false;
-      $("copy-icon").innerHTML = COPY;
-      $("share").style.display = navigator.share ? "" : "none";
-      $("status").textContent = "Travel link ready. Use copy or share.";
-    });
-
-    $("copy").addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(currentLink); }
-      catch {
-        const t = document.createElement("textarea");
-        t.value = currentLink; document.body.appendChild(t); t.select();
-        document.execCommand("copy"); t.remove();
+      // The mask: the body's rounded rect stroked with a conic of opacity, blurred, exported once per geometry.
+      function buildMask(o) {
+        const key = [Math.round(o.width), Math.round(o.height), Math.round(o.radius), o.strokeWidth, o.blur, o.alpha, o.ring || 0].join("|");
+        if (cache.has(key)) return cache.get(key);
+        const pad = padOf(o.strokeWidth, o.blur);
+        const w = Math.max(1, Math.ceil(o.width) + pad * 2), hh = Math.max(1, Math.ceil(o.height) + pad * 2);
+        scratch = scratch || document.createElement("canvas");
+        scratch.width = w; scratch.height = hh;
+        const ctx = scratch.getContext("2d");
+        if (!ctx || !ctx.roundRect || !ctx.createConicGradient) return "";
+        ctx.clearRect(0, 0, w, hh);
+        if (o.blur) ctx.filter = "blur(" + ("GestureEvent" in window ? o.blur * 0.25 : o.blur) + "px)";
+        const g = ctx.createConicGradient(0, w / 2, hh / 2);
+        for (const s of RIM_STOPS) g.addColorStop(s.stop / 360, s.color);
+        ctx.strokeStyle = g; ctx.fillStyle = g; ctx.globalAlpha = o.alpha;
+        const x = (w - o.width) / 2, y = (hh - o.height) / 2;
+        const r = Math.max(0, Math.min(o.radius, o.width / 2, o.height / 2));
+        ctx.beginPath(); ctx.roundRect(x, y, o.width, o.height, r);
+        if (o.strokeWidth) { ctx.lineWidth = o.strokeWidth; ctx.stroke(); }
+        else {
+          ctx.fill();
+          if (o.ring) {
+            ctx.globalCompositeOperation = "destination-out"; ctx.globalAlpha = 1; ctx.filter = "none";
+            const r2 = Math.max(0, Math.min(r - o.ring, (o.width - o.ring * 2) / 2, (o.height - o.ring * 2) / 2));
+            ctx.beginPath(); ctx.roundRect(x + o.ring, y + o.ring, Math.max(0, o.width - o.ring * 2), Math.max(0, o.height - o.ring * 2), r2); ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+          }
+        }
+        const url = scratch.toDataURL("image/png");
+        if (cache.size >= 24) cache.delete(cache.keys().next().value);
+        cache.set(key, url);
+        return url;
       }
-      $("copy-icon").innerHTML = CHECK;
-      $("status").textContent = "Link copied";
-      setTimeout(() => { $("copy-icon").innerHTML = COPY; }, 1600);
-    });
 
-    $("share").addEventListener("click", () => {
-      navigator.share({ title: "Join our trip on Travelbee", url: currentLink }).catch(() => {});
-    });
+      // Each pulse rolls a new palette: one anchor hue walking an arc of the colour wheel.
+      const hsl = (hue, s, l, a = 1) => { const hh = ((hue % 360) + 360) % 360; return a === 1 ? "hsl(" + hh.toFixed(1) + " " + s + "% " + l + "%)" : "hsl(" + hh.toFixed(1) + " " + s + "% " + l + "% / " + a + ")"; };
+      function writePalette(el, anchor, arc) {
+        const at = (t) => anchor + arc * t, st = el.style;
+        st.setProperty("--ai-c1", hsl(at(0), 96, 48)); st.setProperty("--ai-c2", hsl(at(0.18), 52, 80));
+        st.setProperty("--ai-c3", hsl(at(0.4), 98, 55)); st.setProperty("--ai-c4", hsl(at(0.66), 96, 52));
+        st.setProperty("--ai-c5", hsl(at(0.88), 94, 50)); st.setProperty("--ai-c6", hsl(at(1), 90, 72, 0.8));
+        st.setProperty("--ai-tail", hsl(at(-0.12), 70, 76, 0.63));
+      }
 
-    /* ---------------- view 2: questionnaire ---------------- */
-    // Values for tag-based questions use the shared tag list from TEAM_SPLIT.md
-    // (beach, hostel, red-eye, nonstop, long-drive, airboat, snorkel, fine-dining).
-    // If that list changes, change these arrays too, or vetoes will silently never fire.
-    const QUESTIONS = {
-      pace:         [["relaxed", "Relaxed"], ["balanced", "Balanced"], ["packed", "Packed"]],
-      budget:       [["tight", "Keep it cheap"], ["comfortable", "Comfortable"], ["splurge", "Splurge"]],
-      food:         [["casual", "Casual and local"], ["fine-dining", "Fine dining"]],
-      activities:   [["beach", "Beach"], ["snorkel", "Snorkeling"], ["airboat", "Airboat"]],
-      lodging:      [["hostel", "Hostel"], ["hotel", "Hotel"], ["rental", "Rental"]],
-      dealbreakers: [["red-eye", "Red-eye flights"], ["long-drive", "Long drives"], ["hostel", "Hostels"]],
-    };
+      function attach(el) {
+        const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        let timer = 0, settle = 0;
+        function build() {
+          const box = el.getBoundingClientRect();
+          if (!box.width || !box.height) return;
+          el.querySelectorAll(":scope > .ail-layer").forEach((n) => n.remove());
+          for (const l of RIM_LAYERS) {
+            const mask = buildMask({ width: box.width, height: box.height, radius: box.height / 2, strokeWidth: l.strokeWidth, blur: l.blur, alpha: l.alpha, ring: l.ring });
+            if (!mask) continue;
+            const pad = padOf(l.strokeWidth, l.blur);
+            for (const side of [0, 1]) {   // drawn twice, the second mirrored, because the lit arc sits on one side
+              const span = document.createElement("span");
+              span.className = "ail-layer";
+              span.style.inset = -pad + "px";
+              span.style.maskImage = span.style.webkitMaskImage = "url(" + mask + ")";
+              if (side) span.style.transform = "scaleX(-1)";
+              el.append(span);
+            }
+          }
+        }
+        build();
+        new ResizeObserver(() => { clearTimeout(settle); settle = setTimeout(build, MASK_SETTLE_MS); }).observe(el);
+        return {
+          play() {
+            if (still) return;
+            clearTimeout(timer);
+            writePalette(el, Math.random() * 360, (ARC_MIN + Math.random() * (ARC_MAX - ARC_MIN)) * (Math.random() < 0.5 ? -1 : 1));
+            el.dataset.playing = "false"; void el.offsetWidth; el.dataset.playing = "true";
+            timer = setTimeout(() => el.removeAttribute("data-playing"), PULSE_MS + 200);
+          },
+        };
+      }
+      return { attach };
+    })();
 
-    function renderChips() {
-      document.querySelectorAll(".chips").forEach((box) => {
-        const name = box.dataset.name, type = box.dataset.type;
-        QUESTIONS[name].forEach(([value, label]) => {
-          const l = document.createElement("label");
-          l.className = "chip";
-          const i = document.createElement("input");
-          i.type = type; i.name = name; i.value = value;
-          const s = document.createElement("span");
-          s.textContent = label;
-          l.append(i, s);
-          box.appendChild(l);
-        });
+    /* ---------------- landing: generate, copy, share, open organizer view ---------------- */
+    function setupCreate() {
+      let joinLink = "";
+      $("copy").innerHTML = ICON.copy;
+      $("share").innerHTML = ICON.share;
+      $("org-link").innerHTML = ICON.organizer;
+      renderTrips();
+
+      const lights = AIL.attach($("generate"));
+      let busy = false;
+      $("generate").addEventListener("click", async () => {
+        const btn = $("generate");
+        if (busy) return;
+        busy = true;
+        btn.setAttribute("aria-busy", "true");
+        lights.play();
+        $("create-error").hidden = true;
+        try {
+          const r = await api("/trips", {});
+          joinLink = linkTo({ trip: r.trip_id });
+          remember({ id: r.trip_id, role: "organizer", secret: r.admin_token });
+          renderTrips();
+          $("org-link").href = linkTo({ trip: r.trip_id, admin: r.admin_token });
+          $("actions").hidden = false;
+          $("copy").innerHTML = ICON.copy;
+          $("share").style.display = navigator.share ? "" : "none";
+          announce("Travel link ready. Use copy, share, or open the organizer view.");
+        } catch (e) {
+          $("create-error").textContent = e.message;
+          $("create-error").hidden = false;
+        } finally { busy = false; btn.removeAttribute("aria-busy"); }
+      });
+      $("copy").addEventListener("click", async () => {
+        await copyText(joinLink);
+        $("copy").innerHTML = ICON.check;
+        announce("Link copied");
+        setTimeout(() => { $("copy").innerHTML = ICON.copy; }, 1600);
+      });
+      $("share").addEventListener("click", () => {
+        navigator.share({ title: "Join our trip on Travelbee", url: joinLink }).catch(() => {});
       });
     }
 
-    function showForm() {
-      document.body.classList.add("form-view");
+    /* ---------------- shared screen pieces ---------------- */
+    const app = $("app");
+    function enterAppView() {
+      document.body.classList.add("app-view");
       $("view-create").hidden = true;
-      $("view-form").hidden = false;
-      $("trip-id").textContent = tripParam;
-      renderChips();
+      app.hidden = false;
+      app.textContent = "";
+    }
+    function card(content, foot) {
+      return h("div", { class: "shell" }, h("div", { class: "panel" }, content), foot || null);
+    }
+    function showError(message) {
+      enterAppView();
+      app.append(card([h("h2", { class: "heading", text: "This link does not work" }), h("p", { class: "note", text: message })]));
     }
 
-    $("form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const f = e.target;
-      const name = f.name.value.trim();
-      const err = $("name-error");
-      if (!name) {
-        err.hidden = false;
-        $("name").setAttribute("aria-invalid", "true");
-        $("name").focus();
+    function renderPlan(plan) {
+      return h("ul", { class: "plan-list" }, plan.map((o) =>
+        h("li", {},
+          h("span", { class: "kind", text: o.type.charAt(0).toUpperCase() + o.type.slice(1) }),
+          h("span", { class: "what", text: o.title }),
+          h("span", { class: "price", text: o.price ? money(o.price) + (o.type === "stay" ? " per night" : "") : "Free" }))));
+    }
+
+    function renderLog(box, log, state) {
+      if (log.length < state.logLen) { box.textContent = ""; state.logLen = 0; }
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      for (const m of log.slice(state.logLen)) {
+        box.append(h("div", { class: "msg" },
+          h("div", { class: "meta" }, h("span", { class: "tag " + m.type, text: m.type.replace("_", " ") }), actor(m.from) + " to " + actor(m.to)),
+          h("div", { class: "text", text: m.content })));
+      }
+      state.logLen = log.length;
+      if (nearBottom) box.scrollTop = box.scrollHeight;
+    }
+
+    /* The open question, drawn only when it changes so typed text survives the polling. */
+    function renderAction(box, pending, state, answer) {
+      const key = pending ? pending.id + ":" + pending.mine : "none";
+      if (key === state.pendingKey) return;
+      state.pendingKey = key;
+      box.textContent = "";
+      box.hidden = !pending;
+      if (!pending) return;
+      if (!pending.mine) {
+        box.append(card(h("div", { class: "waiting" }, h("span", { class: "dot" }), "Waiting for " + pending.waiting_for + " to answer.")));
         return;
       }
-      err.hidden = true;
-      $("name").removeAttribute("aria-invalid");
+      if (pending.kind === "choice") {
+        box.append(card([
+          h("h2", { class: "heading", text: "The agents need you" }),
+          h("p", { class: "desc", text: pending.question }),
+          h("div", { class: "choice-list" }, pending.choices.map((c) =>
+            h("button", { class: "flat", type: "button", text: c.label, onclick: (e) => { e.target.disabled = true; answer({ question_id: pending.id, choice: c.value }); } }))),
+        ]));
+        return;
+      }
+      // approval
+      const item = h("select", { class: "input", id: "reject-item", "aria-label": "Item to reject" }, pending.plan.map((o) => h("option", { value: o.id, text: o.type + ": " + o.title })));
+      const reason = h("textarea", { class: "input area", id: "reject-reason", "aria-label": "Why reject it", placeholder: "Why not? The agents learn from this." });
+      const rejectForm = h("div", { hidden: true }, h("div", { class: "field" }, item), h("div", { class: "field" }, reason));
+      const foot = h("div", { class: "btn-row" });
+      const showButtons = () => {
+        foot.textContent = ""; rejectForm.hidden = true;
+        foot.append(
+          h("button", { class: "flat", type: "button", text: "Reject an item", onclick: showReject }),
+          h("button", { class: "glass glass-green glass-sm", type: "button", onclick: (e) => { e.currentTarget.disabled = true; answer({ question_id: pending.id, choice: "approve" }); } }, h("span", { text: "Approve plan" })));
+      };
+      const showReject = () => {
+        foot.textContent = ""; rejectForm.hidden = false; reason.focus();
+        foot.append(
+          h("button", { class: "flat", type: "button", text: "Cancel", onclick: showButtons }),
+          h("button", { class: "glass glass-sm", type: "button", onclick: (e) => { e.currentTarget.disabled = true; answer({ question_id: pending.id, choice: "reject", item_id: item.value, reason: reason.value }); } }, h("span", { text: "Send feedback" })));
+      };
+      showButtons();
+      box.append(card([h("h2", { class: "heading", text: "Approve the plan" }), h("p", { class: "desc", text: pending.question }), renderPlan(pending.plan), rejectForm, foot]));
+    }
 
-      const one = (n) => (f.querySelector('input[name="' + n + '"]:checked') || {}).value || null;
-      const many = (n) => [...f.querySelectorAll('input[name="' + n + '"]:checked')].map((x) => x.value);
-      const budget = parseFloat(f.budget_per_night.value);
+    /* ---------------- questionnaire (join link, or organizer answering) ---------------- */
+    /* Opening the join link again on the same device goes to that traveler's page, so nobody joins twice. */
+    async function redirectIfJoined() {
+      if (ADMIN || NEW) return false;
+      const mine = loadReg().find((e) => e.id === TRIP && e.role === "traveler");
+      if (!mine) return false;
+      try {
+        await api("/trips/" + TRIP + "/me?u=" + encodeURIComponent(mine.secret));
+        location.replace(linkTo({ trip: TRIP, u: mine.secret }));
+        return true;
+      } catch (e) { if (e.status) forget(TRIP, "traveler"); return false; }
+    }
 
-      // Same shape as User in TEAM_SPLIT.md, plus the trip it belongs to.
-      const user = {
-        id: "u_" + makeTripId().slice(0, 6),
-        trip_id: tripParam,
-        name,
-        budget_per_night: Number.isFinite(budget) ? budget : null,
-        home_city: f.home_city.value.trim(),
-        answers: {
-          pace: one("pace"),
-          budget: one("budget"),
-          food: one("food"),
-          activities: many("activities"),
-          lodging: one("lodging"),
-          dealbreakers: many("dealbreakers"),
-        },
+    async function showForm() {
+      enterAppView();
+      if (await redirectIfJoined()) return;
+      let trip, questions;
+      try { [trip, questions] = await Promise.all([api("/trips/" + TRIP), api("/questions")]); }
+      catch (e) { return showError(e.message); }
+
+      const chips = (name, type) => h("div", { class: "chips" }, questions[name].map(([value, label]) =>
+        h("label", { class: "chip" }, h("input", { type, name, value }), h("span", { text: label }))));
+      const nameErr = h("span", { class: "error", id: "name-error", hidden: true, text: "Add your name so the group knows who you are." });
+      const nameIn = h("input", { id: "name", class: "input", name: "name", type: "text", autocomplete: "given-name", placeholder: "Your first name", "aria-describedby": "name-error" });
+      const city = h("input", { id: "home_city", class: "input", type: "text", autocomplete: "address-level2", placeholder: "Where are you flying from?" });
+      const budget = h("input", { id: "budget", class: "input", type: "number", inputmode: "numeric", min: "0", step: "5", placeholder: "150", "aria-describedby": "budget-hint" });
+      const sendBtn = h("button", { class: "glass glass-sm", type: "submit" }, h("span", { text: "Send" }));
+      const formErr = h("span", { class: "error", role: "alert", hidden: true });
+      const fieldset = (legend, name, type) => h("fieldset", { class: "field" }, h("legend", { text: legend }), chips(name, type));
+
+      const form = h("form", { novalidate: true },
+        h("div", { class: "shell" },
+          h("div", { class: "panel tight-bottom", id: "panel" },
+            h("h2", { class: "title", text: "Tell us how you travel" }),
+            h("p", { class: "desc", text: tripLine(trip) }),
+            h("div", { class: "field" }, h("label", { for: "name", text: "Name" }), nameIn, nameErr),
+            h("div", { class: "field" }, h("label", { for: "home_city", text: "Home city" }), city),
+            h("div", { class: "field" }, h("label", { for: "budget", text: "Budget per night" }), budget, h("span", { class: "hint", id: "budget-hint", text: "In US dollars, for your own bed." })),
+            fieldset("Pace", "pace", "radio"), fieldset("Spending style", "budget", "radio"), fieldset("Food", "food", "radio"),
+            fieldset("Activities you want", "activities", "checkbox"), fieldset("Where you stay", "lodging", "radio"), fieldset("Dealbreakers", "dealbreakers", "checkbox"),
+            formErr),
+          h("div", { class: "shell-foot" }, h("span", { class: "meta", text: ADMIN ? "You are the organizer" : "Trip " + TRIP }), sendBtn)));
+      app.append(form);
+
+      nameIn.addEventListener("input", () => { nameErr.hidden = true; nameIn.removeAttribute("aria-invalid"); });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = nameIn.value.trim();
+        if (!name) { nameErr.hidden = false; nameIn.setAttribute("aria-invalid", "true"); nameIn.focus(); return; }
+        const one = (n) => (form.querySelector('input[name="' + n + '"]:checked') || {}).value || null;
+        const many = (n) => [...form.querySelectorAll('input[name="' + n + '"]:checked')].map((x) => x.value);
+        const b = parseFloat(budget.value);
+        const body = {
+          name, home_city: city.value.trim(), budget_per_night: Number.isFinite(b) ? b : null,
+          answers: { pace: one("pace"), budget: one("budget"), food: one("food"), activities: many("activities"), lodging: one("lodging"), dealbreakers: many("dealbreakers") },
+        };
+        if (ADMIN) body.admin = ADMIN;
+        sendBtn.disabled = true; formErr.hidden = true;
+        try {
+          const r = await api("/trips/" + TRIP + "/users", body);
+          if (!ADMIN) remember({ id: TRIP, role: "traveler", secret: r.user_id });
+          showThanks(name, r.user_id);
+        } catch (err) {
+          formErr.textContent = err.message; formErr.hidden = false; sendBtn.disabled = false;
+        }
+      });
+    }
+
+    function showThanks(name, userId) {
+      enterAppView();
+      const mine = linkTo({ trip: TRIP, u: userId });
+      const input = h("input", { class: "input", type: "text", readonly: true, value: mine, "aria-label": "Your personal link" });
+      const copyBtn = h("button", { class: "ghost", type: "button", "aria-label": "Copy your personal link", onclick: async () => {
+        await copyText(mine); copyBtn.innerHTML = ICON.check; announce("Link copied");
+        setTimeout(() => { copyBtn.innerHTML = ICON.copy; }, 1600);
+      } });
+      copyBtn.innerHTML = ICON.copy;
+      const shareBtn = h("button", { class: "ghost", type: "button", "aria-label": "Send your personal link to yourself", title: "Send your personal link to yourself", onclick: () => {
+        navigator.share({ title: "My Travelbee link", url: mine }).catch(() => {});
+      } });
+      shareBtn.innerHTML = ICON.share;
+      if (!navigator.share) shareBtn.hidden = true;
+      const back = ADMIN ? linkTo({ trip: TRIP, admin: ADMIN }) : mine;
+      app.append(card([
+        h("h2", { class: "title", text: "Thanks, " + name }),
+        h("p", { class: "desc", text: ADMIN ? "Your answers are in. You are now part of the group." : "Your answers are in. This page is saved on this device. Copy the link or send it to yourself too: it is how you come back to answer questions and see the plan." }),
+        ADMIN ? null : h("div", { class: "link-row" }, input, copyBtn, shareBtn),
+      ], h("div", { class: "shell-foot" }, h("a", { class: "glass glass-sm", href: back }, h("span", { text: ADMIN ? "Back to organizer view" : "Open my trip page" })))));
+      announce("Answers sent");
+    }
+
+    /* ---------------- polling helper ---------------- */
+    function poll(fn) {
+      let stop = false;
+      const loop = async () => {
+        if (stop) return;
+        try { await fn(); } catch (e) { announce(e.message); }
+        setTimeout(loop, 2000);
+      };
+      loop();
+      return () => { stop = true; };
+    }
+
+    /* ---------------- organizer dashboard ---------------- */
+    async function showDashboard() {
+      enterAppView();
+      let first;
+      try { first = await api("/trips/" + TRIP + "/dashboard?admin=" + encodeURIComponent(ADMIN)); }
+      catch (e) { return showError(e.message); }
+
+      const dest = h("input", { id: "dest", class: "input", type: "text", maxlength: "80", placeholder: "Where is the group going?", value: first.trip.destination });
+      const start = h("input", { id: "start", class: "input", type: "date", value: first.trip.start });
+      const end = h("input", { id: "end", class: "input", type: "date", value: first.trip.end });
+      const detailsMsg = h("span", { class: "note", role: "status" });
+      const saveBtn = h("button", { class: "flat", type: "button", text: "Save details" });
+
+      const members = h("ul", { class: "rows" });
+      const meta = h("span", { class: "meta" });
+      const copyJoin = h("button", { class: "flat", type: "button", text: "Copy join link" });
+      const answerMine = h("a", { class: "flat", href: linkTo({ trip: TRIP, admin: ADMIN, answer: 1 }), text: "Answer my questions" });
+      const planBtn = h("button", { class: "glass glass-sm", type: "button" }, h("span", { text: "Plan our trip" }));
+
+      const action = h("div", { hidden: true });
+      const planBox = h("div", { hidden: true });
+      const logBox = h("div", { class: "log", role: "log", "aria-label": "Agent messages" });
+      const logCard = h("div", { hidden: true }, card([h("h2", { class: "heading", text: "What the agents said" }), logBox]));
+
+      remember({ id: TRIP, role: "organizer", secret: ADMIN });
+      const stepsList = h("ul", { class: "steps" });
+      const saveCopy = h("button", { class: "ghost", type: "button", "aria-label": "Copy organizer link", title: "Copy organizer link" });
+      saveCopy.innerHTML = ICON.copy;
+      saveCopy.addEventListener("click", async () => {
+        await copyText(location.href); saveCopy.innerHTML = ICON.check; announce("Organizer link copied");
+        setTimeout(() => { saveCopy.innerHTML = ICON.copy; }, 1600);
+      });
+      const saveShare = h("button", { class: "ghost", type: "button", "aria-label": "Send organizer link to yourself", title: "Send organizer link to yourself", onclick: () => {
+        navigator.share({ title: "Travelbee organizer link", url: location.href }).catch(() => {});
+      } });
+      saveShare.innerHTML = ICON.share;
+      if (!navigator.share) saveShare.hidden = true;
+      const stepsCard = card([
+        h("h2", { class: "title", text: "Your trip" }),
+        h("p", { class: "desc", text: "Follow these steps. Everyone who joins gets their own agent." }),
+        stepsList,
+        h("p", { class: "note", text: "Keep this page's link. It is your organizer link and the only way back to this dashboard. This device remembers it too." }),
+      ], h("div", { class: "shell-foot" }, h("span", { class: "meta", text: "Trip " + TRIP }), saveCopy, saveShare));
+
+      app.append(
+        stepsCard,
+        card([
+          h("h2", { class: "heading", text: "Where and when" }),
+          h("div", { class: "field" }, h("label", { for: "dest", text: "Destination" }), dest),
+          h("div", { class: "field row2" }, h("div", {}, h("label", { for: "start", text: "Start" }), start), h("div", {}, h("label", { for: "end", text: "End" }), end)),
+          h("div", { class: "btn-row", style: "justify-content:flex-start;align-items:center" }, saveBtn, detailsMsg),
+        ]),
+        card([h("h2", { class: "heading", text: "Travelers" }), members],
+          h("div", { class: "shell-foot" }, meta, copyJoin, answerMine, planBtn)),
+        action, planBox, logCard);
+
+      const state = { logLen: 0, pendingKey: "", sig: "" };
+      let latest = first;
+
+      const saveDetails = async () => {
+        const t = await api("/trips/" + TRIP + "/details?admin=" + encodeURIComponent(ADMIN), { destination: dest.value, start: start.value, end: end.value });
+        detailsMsg.textContent = "Saved"; announce("Details saved");
+        return t;
+      };
+      saveBtn.addEventListener("click", async () => {
+        detailsMsg.textContent = "";
+        try { await saveDetails(); } catch (e) { detailsMsg.textContent = e.message; }
+      });
+      copyJoin.addEventListener("click", async () => {
+        await copyText(linkTo({ trip: TRIP }));
+        copyJoin.textContent = "Copied"; announce("Join link copied");
+        setTimeout(() => { copyJoin.textContent = "Copy join link"; }, 1600);
+      });
+      planBtn.addEventListener("click", async () => {
+        planBtn.disabled = true;
+        try {
+          await saveDetails();
+          await api("/trips/" + TRIP + "/plan?admin=" + encodeURIComponent(ADMIN), {});
+        } catch (e) { detailsMsg.textContent = e.message; }
+        refresh();
+      });
+      const answer = async (payload) => {
+        try { await api("/trips/" + TRIP + "/answer", { admin: ADMIN, ...payload }); } catch (e) { announce(e.message); state.pendingKey = ""; }
+        refresh();
       };
 
-      // No backend yet: keep it in this browser so the next step can read it.
-      try { localStorage.setItem("travelbee:user:" + tripParam, JSON.stringify(user)); } catch {}
-      console.log("travelbee user", user);
+      function paint(d) {
+        latest = d;
+        const sig = JSON.stringify(d.members.map((m) => [m.id, m.name, m.home_city, m.budget_per_night, m.is_organizer]));
+        if (sig !== state.sig) {
+          state.sig = sig;
+          members.textContent = "";
+          if (!d.members.length) members.append(h("li", {}, h("p", { class: "empty", text: "Nobody has answered yet. Send the join link to your group." })));
+          for (const m of d.members) {
+            members.append(h("li", {},
+              h("span", {}, h("span", { class: "who", text: m.name }), m.is_organizer ? h("span", { class: "badge", text: "Organizer" }) : null),
+              h("span", { class: "sub", text: [m.home_city, m.budget_per_night != null ? money(m.budget_per_night) + " per night" : ""].filter(Boolean).join(", ") })));
+          }
+          answerMine.hidden = d.members.some((m) => m.is_organizer);
+        }
+        const hasOrg = d.members.some((m) => m.is_organizer);
+        const others = d.members.filter((m) => !m.is_organizer).length;
+        const steps = [
+          [!!(d.trip.destination && d.trip.start && d.trip.end), "Set the destination and dates", null],
+          [others >= 1, "Send the join link to your group", null],
+          [hasOrg, "Add your own answers", hasOrg ? null : linkTo({ trip: TRIP, admin: ADMIN, answer: 1 })],
+          [d.trip.status === "done", "Plan the trip once two travelers have answered", null],
+        ];
+        stepsList.textContent = "";
+        for (const [done, label, href] of steps) {
+          stepsList.append(h("li", { class: done ? "done" : "" }, h("span", { class: "check", "aria-hidden": "true" }),
+            href ? h("a", { href, text: label }) : label, h("span", { class: "sr-only", text: done ? " (done)" : " (to do)" })));
+        }
+        const running = d.trip.status === "planning" || d.trip.status === "awaiting";
+        const hasDest = (dest.value.trim() || d.trip.destination);
+        const ready = d.members.length >= 2 && hasDest && !running;
+        planBtn.disabled = !ready;
+        planBtn.querySelector("span").textContent = d.trip.status === "done" ? "Plan again" : "Plan our trip";
+        meta.textContent = d.members.length + (d.members.length === 1 ? " traveler" : " travelers") +
+          (running ? ". The agents are working." : d.members.length < 2 ? ". Waiting for at least two." : !hasDest ? ". Add a destination first." : ".");
+        logCard.hidden = !d.log.length;
+        renderLog(logBox, d.log, state);
+        renderAction(action, d.pending, state, answer);
+        planBox.hidden = !(d.trip.status === "done" && d.plan);
+        if (!planBox.hidden) { planBox.textContent = ""; planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan)])); }
+      }
+      async function refresh() { paint(await api("/trips/" + TRIP + "/dashboard?admin=" + encodeURIComponent(ADMIN))); }
+      paint(first);
+      poll(refresh);
+    }
 
-      $("panel").innerHTML = '<div class="done"><h2></h2><p>Your answers are in. We will let you know when the group plan is ready.</p></div>';
-      $("panel").querySelector("h2").textContent = "Thanks, " + name;
-      document.querySelector(".shell-foot").hidden = true;
-      $("status").textContent = "Answers sent";
-    });
+    /* ---------------- personal page ---------------- */
+    async function showPersonal() {
+      enterAppView();
+      let first;
+      try { first = await api("/trips/" + TRIP + "/me?u=" + encodeURIComponent(UID)); }
+      catch (e) { return showError(e.message); }
 
-    $("name").addEventListener("input", () => {
-      $("name-error").hidden = true;
-      $("name").removeAttribute("aria-invalid");
-    });
+      const tripP = h("p", { class: "desc" });
+      const statusP = h("p", { class: "note" });
+      const action = h("div", { hidden: true });
+      const planBox = h("div", { hidden: true });
+      const logBox = h("div", { class: "log", role: "log", "aria-label": "Agent messages" });
+      const logCard = h("div", { hidden: true }, card([h("h2", { class: "heading", text: "What the agents said" }), logBox]));
+      remember({ id: TRIP, role: "traveler", secret: UID });
+      app.append(card([h("h2", { class: "title", text: "Hi, " + first.user.name }), tripP, statusP],
+        h("div", { class: "shell-foot" }, h("span", { class: "meta", text: "Trip " + TRIP }), h("a", { class: "flat", href: linkTo({ trip: TRIP, new: 1 }), text: "Not you? Answer as someone else" }))),
+        action, planBox, logCard);
 
-    if (tripParam) showForm();
+      const state = { logLen: 0, pendingKey: "" };
+      const answer = async (payload) => {
+        try { await api("/trips/" + TRIP + "/answer", { u: UID, ...payload }); } catch (e) { announce(e.message); state.pendingKey = ""; }
+        refresh();
+      };
+      const STATUS = {
+        gathering: "Your answers are saved. The organizer will start planning once everyone has joined.",
+        planning: "Your agent is negotiating with the others now.",
+        awaiting: "The agents are waiting on a human answer.",
+        done: "The plan is final.",
+      };
+      function paint(d) {
+        tripP.textContent = tripLine(d.trip);
+        statusP.textContent = STATUS[d.trip.status] || "";
+        logCard.hidden = !d.log.length;
+        renderLog(logBox, d.log, state);
+        renderAction(action, d.pending, state, answer);
+        planBox.hidden = !(d.trip.status === "done" && d.plan);
+        if (!planBox.hidden) { planBox.textContent = ""; planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan)])); }
+      }
+      async function refresh() { paint(await api("/trips/" + TRIP + "/me?u=" + encodeURIComponent(UID))); }
+      paint(first);
+      poll(refresh);
+    }
+
+    /* ---------------- routing by link ---------------- */
+    if (TRIP && ADMIN && !ANSWER_MODE) showDashboard();
+    else if (TRIP && UID && !ADMIN) showPersonal();
+    else if (TRIP) showForm();
+    else setupCreate();
   </script>
 </body>
 </html>
