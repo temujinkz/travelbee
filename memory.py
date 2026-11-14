@@ -17,14 +17,48 @@ Coordinator's thread and from Streamlit alike.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import threading
 
 TIMEOUT_S = float(os.getenv("MEMORY_TIMEOUT_S") or 8)
 
+# The dict store is saved to a JSON file so separate processes share one memory: the Coordinator run,
+# P1's app, and the Band Advocate agents (which call p2cli.py). MEMORY_FILE="" keeps it in-process only.
+MEMORY_FILE = os.getenv("MEMORY_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "memory.json"))
+
 _DICT: dict[str, list[str]] = {}
 _lock = threading.Lock()
+_mtime = 0.0
+
+
+def _load() -> None:
+    """Pick up writes from other processes (cheap: only re-reads when the file changed)."""
+    global _DICT, _mtime
+    if not MEMORY_FILE or not os.path.exists(MEMORY_FILE):
+        return
+    m = os.path.getmtime(MEMORY_FILE)
+    if m == _mtime:
+        return
+    try:
+        with open(MEMORY_FILE, encoding="utf-8") as f:
+            _DICT = {k: list(v) for k, v in json.load(f).items()}
+        _mtime = m
+    except (OSError, ValueError):
+        pass  # half-written by another process: keep what we have, retry next call
+
+
+def _save() -> None:
+    global _mtime
+    if not MEMORY_FILE:
+        return
+    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
+    tmp = f"{MEMORY_FILE}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_DICT, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, MEMORY_FILE)  # atomic, so readers never see half a file
+    _mtime = os.path.getmtime(MEMORY_FILE)
 
 LAST_SOURCE: dict[str, str] = {}  # dataset -> "cognee" | "dict", for the UI / log ("recalled from cognee")
 
@@ -97,6 +131,7 @@ def _words(s: str) -> list[str]:
 
 def _dict_recall(dataset: str, query: str, top_k: int) -> list[str]:
     with _lock:
+        _load()
         facts = list(_DICT.get(dataset, []))
     words = _words(query)
     if not words:
@@ -113,9 +148,11 @@ def remember(dataset: str, text: str) -> None:
     if not text:
         return
     with _lock:
+        _load()
         if text in _DICT.setdefault(dataset, []):
             return
         _DICT[dataset].append(text)
+        _save()
     if _cognee is not None:
         _run(_cognee.remember, text, dataset_name=dataset, session_id=dataset)
 
@@ -147,7 +184,9 @@ def improve(dataset: str) -> None:
 
 def forget(dataset: str) -> None:
     with _lock:
+        _load()
         _DICT.pop(dataset, None)
+        _save()
     LAST_SOURCE.pop(dataset, None)
     if _cognee is not None:
         _run(_cognee.forget, dataset=dataset)
@@ -156,6 +195,7 @@ def forget(dataset: str) -> None:
 def dump(dataset: str) -> list[str]:
     """Everything stored for a dataset (dict view). Handy for P1's memory panel and for debugging."""
     with _lock:
+        _load()
         return list(_DICT.get(dataset, []))
 
 
