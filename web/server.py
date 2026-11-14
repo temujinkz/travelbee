@@ -389,6 +389,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "Travelbee"
 
     def log_message(self, fmt, *args):
+        if self.command == "GET" and os.environ.get("LOG_GETS") != "1":
+            return  # pages poll every second; only log actions (POST) and errors. LOG_GETS=1 shows everything
         sys.stderr.write("%s %s\n" % (self.command, urlparse(self.path).path))
 
     def _send(self, code, body, ctype):
