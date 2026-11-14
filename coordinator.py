@@ -25,6 +25,8 @@ import sys
 import unicodedata
 from datetime import date
 
+import itinerary
+import sie
 from protocol import Message, post
 
 MAX_ROUNDS = 3
@@ -329,6 +331,12 @@ def run_trip(trip: dict, users: list[dict], ask_human) -> dict:
                  f"Final plan approved, about ${_per_person(trip, plan):,.0f} per person. " + " | ".join(lines),
                  [o["id"] for o in plan.values() if o]))
     memory.remember(f"trip_{trip['id']}", "Final plan: " + "; ".join(f"{label(s)}: {o['title']}" for s, o in plan.items() if o))
+    if sie.available():  # Qwen3.8 27B writes the itinerary + where-to-stay pick; the template fallback adds nothing new
+        it = itinerary.build_itinerary(trip, users, plan)
+        st["itinerary"] = it
+        rec = it["stay_recommendation"]
+        post(Message(st["round"], "coordinator", "all", "decision",
+                     f"Itinerary: {it['summary']} Where to stay: {rec['why']}", [rec["option_id"]] if rec["option_id"] else []))
     return plan
 
 
