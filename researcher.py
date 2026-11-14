@@ -128,7 +128,10 @@ def _to_option(result: dict, typ: str, query: str) -> dict | None:
     if price is None:
         return None
     title = re.sub(r"\s*[|·-]\s*(Booking\.com|KAYAK|Tripadvisor|Expedia|Viator).*$", "", result.get("title", "")).strip()
-    tags = sorted(set(_tags(text, typ)) | (set(_query_tags(query)) if typ == "activity" else set()))
+    tags = set(_tags(text, typ)) | (set(_query_tags(query)) if typ == "activity" else set())
+    if typ == "activity" and "keys" in tags:
+        tags.add("long-drive")  # anything in the Keys is 1h15+ from Miami, even if the page doesn't say where
+    tags = sorted(tags)
     return {
         "id": f"{typ}_{hashlib.sha1(result['url'].encode()).hexdigest()[:8]}",
         "type": typ,
