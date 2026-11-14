@@ -1,10 +1,10 @@
 """Stand-ins for P2 (advocate.py, memory.py) and P4 (researcher.py) so the Coordinator runs on its own.
 coordinator.py switches to the real module as soon as that file exists. Delete this once everything is real.
 
-Demo data uses the frozen formats. The conflicts are deliberate:
-  cheapest flight is a red-eye (Léa's dealbreaker), cheap stay is far from the beach (Ben's dealbreaker),
-  beach stays are over Léa's and Chloé's budgets, every snorkel trip is a long drive (Ben's dealbreaker),
-  and a cheap beach rental only shows up on a second, constrained search.
+Demo data uses the frozen formats and the answer values of P1's questionnaire (web/index.html).
+The conflicts are deliberate: the cheapest flight is a red-eye (Léa's dealbreaker), the cheap stay is a
+hostel (Diego's dealbreaker), hotels are over Léa's and Chloé's budgets, every snorkel trip is a long drive
+(Ben's dealbreaker), and a cheap beach rental only shows up on a second, constrained search.
 """
 from __future__ import annotations
 
@@ -15,16 +15,16 @@ TRIP = {"id": "miami", "destination": "Miami + Everglades + Florida Keys",
 
 USERS = [
     {"id": "lea", "name": "Léa", "budget_per_night": 100, "home_city": "San Francisco",
-     "answers": {"pace": "relaxed", "budget": "tight", "food": "local", "activities": ["airboat"],
-                 "lodging": "any", "dealbreakers": ["red-eye"]}},
+     "answers": {"pace": "relaxed", "budget": "tight", "food": "casual", "activities": ["airboat"],
+                 "lodging": None, "dealbreakers": ["red-eye"]}},
     {"id": "ben", "name": "Ben", "budget_per_night": 150, "home_city": "San Francisco",
-     "answers": {"pace": "relaxed", "budget": "medium", "food": "seafood", "activities": ["airboat"],
-                 "lodging": "beach", "dealbreakers": ["long-drive", "far-from-beach"]}},
+     "answers": {"pace": "relaxed", "budget": "comfortable", "food": "casual", "activities": ["airboat"],
+                 "lodging": "rental", "dealbreakers": ["long-drive"]}},
     {"id": "chloe", "name": "Chloé", "budget_per_night": 90, "home_city": "Oakland",
-     "answers": {"pace": "packed", "budget": "tight", "food": "any", "activities": ["snorkel"],
-                 "lodging": "any", "dealbreakers": []}},
+     "answers": {"pace": "packed", "budget": "tight", "food": "casual", "activities": ["snorkel"],
+                 "lodging": None, "dealbreakers": []}},
     {"id": "diego", "name": "Diego", "budget_per_night": 250, "home_city": "San Francisco",
-     "answers": {"pace": "morning", "budget": "flexible", "food": "tasting-menu", "activities": ["fine-dining"],
+     "answers": {"pace": "balanced", "budget": "splurge", "food": "fine-dining", "activities": [],
                  "lodging": "hotel", "dealbreakers": ["hostel"]}},
 ]
 
@@ -37,9 +37,9 @@ OPTIONS = [
     {"id": "flight_nonstop", "type": "flight", "title": "Nonstop SFO→MIA, 7:05am", "price": 259, "tags": ["nonstop", "morning"]},
     {"id": "stay_resort", "type": "stay", "title": "Oceanfront resort, Mid-Beach", "price": 185, "tags": ["beach", "hotel", "pool"]},
     {"id": "stay_boutique", "type": "stay", "title": "Boutique hotel, South Beach", "price": 135, "tags": ["beach", "hotel", "nightlife"]},
-    {"id": "stay_inn", "type": "stay", "title": "Budget inn, Downtown Miami", "price": 79, "tags": ["city", "far-from-beach"]},
-    {"id": "stay_hostel", "type": "stay", "title": "Hostel dorm, South Beach", "price": 45, "tags": ["beach", "hostel"], "hidden": True},
-    {"id": "stay_rental", "type": "stay", "title": "4-bedroom rental, North Beach", "price": 88, "tags": ["beach", "kitchen"], "hidden": True},
+    {"id": "stay_hostel", "type": "stay", "title": "Hostel dorm, South Beach", "price": 45, "tags": ["beach", "hostel"]},
+    {"id": "stay_rental", "type": "stay", "title": "4-bedroom rental, North Beach", "price": 88, "tags": ["beach", "rental", "kitchen"], "hidden": True},
+    {"id": "act_beach_day", "type": "activity", "title": "South Beach day, umbrella + chairs", "price": 30, "tags": ["beach"]},
     {"id": "act_airboat_sunrise", "type": "activity", "title": "Everglades airboat tour, 8am", "price": 49, "tags": ["airboat", "everglades", "morning"]},
     {"id": "act_airboat_afternoon", "type": "activity", "title": "Everglades airboat tour, 2pm", "price": 45, "tags": ["airboat", "everglades", "afternoon"]},
     {"id": "act_snorkel_keywest", "type": "activity", "title": "Key West reef snorkel trip", "price": 65, "tags": ["snorkel", "keys", "long-drive"]},
@@ -91,7 +91,7 @@ def forget(dataset: str) -> None:
 
 
 # ---------------------------------------------------------------- P2: advocate.evaluate / concede
-PRICE_WEIGHT = {"tight": 1.0, "medium": 0.5, "flexible": 0.1}
+PRICE_WEIGHT = {"tight": 1.0, "comfortable": 0.5, "splurge": -0.1}  # splurge: the nicer (pricier) option wins
 
 
 def _prefs(user: dict) -> set[str]:

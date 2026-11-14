@@ -50,10 +50,16 @@ _STATE: dict[str, dict] = {}  # per trip id: options seen, rejected ids, vetoes,
 
 
 # ---------------------------------------------------------------- helpers
+def _wanted(u: dict) -> list[str]:
+    """Activity tags a traveler wants in the plan: their activities, plus one nice dinner if food is fine-dining."""
+    a = u["answers"]
+    return list(a.get("activities") or []) + (["fine-dining"] if a.get("food") == "fine-dining" else [])
+
+
 def slots_for(users: list[dict]) -> list[str]:
     slots = ["flight", "stay"]
     for u in users:
-        for tag in u["answers"].get("activities", []):
+        for tag in _wanted(u):
             if f"activity:{tag}" not in slots:
                 slots.append(f"activity:{tag}")
     return slots
@@ -303,7 +309,7 @@ def _checks(u: dict, plan: dict, st: dict) -> list[str]:
             out.append(f"⚠ {d} accepted in a group decision")
         else:
             out.append(f"✗ {d}")
-    for tag in u["answers"].get("activities", []):
+    for tag in _wanted(u):
         out.append(("✓ " if plan.get(f"activity:{tag}") else "✗ no ") + tag.replace("-", " "))
     return out
 
