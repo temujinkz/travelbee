@@ -37,6 +37,7 @@ ACTIVITY_SEARCH = {  # what to search for each questionnaire activity / food tag
     "snorkel": "snorkeling tour",
     "airboat": "airboat tour",
     "fine-dining": "fine dining restaurant tasting menu",
+    "sightseeing": "top sightseeing tour or boat cruise",  # the destination's own highlight, for everyone
 }
 
 
