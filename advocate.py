@@ -15,6 +15,7 @@ How an Advocate decides, for each option:
 from __future__ import annotations
 
 import importlib
+import os
 import re
 
 import memory
@@ -62,6 +63,9 @@ def _tags_in(reason: str) -> set[str]:
     return out
 
 
+# The group's shared memory (also the Band room's memory). P3's Coordinator writes "trip_<trip id>".
+TRIP_DATASET = f"trip_{os.getenv('TRIP_ID', 'miami')}"
+
 # ---------------------------------------------------------------- onboarding into memory
 _onboarded: set[str] = set()
 
@@ -86,17 +90,26 @@ def onboard(user: dict) -> None:
         memory.remember(ds, f"{name}'s dealbreakers: {', '.join(a['dealbreakers'])}")
 
 
-def _learned(user: dict) -> list[tuple[str, set[str]]]:
-    """(reason, tags) for each earlier rejection this traveler made, recalled from memory."""
+def _reasons(facts: list[str], who: str) -> list[tuple[str, set[str], str]]:
     out = []
-    for fact in memory.recall(f"user_{user['id']}", "rejected because", top_k=10):
+    for fact in facts:
         if "because:" not in fact:
             continue
         reason = fact.split("because:", 1)[1].strip().strip("“”\"")
         tags = _tags_in(reason)
         if tags:
-            out.append((reason, tags))
+            out.append((reason, tags, who))
     return out
+
+
+def _learned(user: dict) -> list[tuple[str, set[str], str]]:
+    """(reason, tags, whose) for each earlier rejection that should steer this Advocate:
+    the traveler's own (user_<id>) and the whole group's (trip_<id>, facts starting "The group ...").
+    A single traveler's rejection that the Coordinator also logged in trip memory does NOT bind the others."""
+    own = memory.recall(f"user_{user['id']}", "rejected because", top_k=10)
+    group = [f for f in memory.recall(TRIP_DATASET, "group rejected because", top_k=10)
+             if f.lower().startswith("the group")]
+    return _reasons(own, user["name"]) + _reasons(group, "the group")
 
 
 # ---------------------------------------------------------------- scoring + vetoes
@@ -126,10 +139,11 @@ def _veto_reasons(user: dict, o: dict, learned: list[tuple[str, set[str]]]) -> l
         reasons.append(f"${o['price']:,.0f} is over {user['name']}'s ${budget} limit")
     for tag in sorted(tags & set(user["answers"].get("dealbreakers") or [])):
         reasons.append(f"{tag} is a dealbreaker for {user['name']}")
-    for reason, bad in learned:
+    for reason, bad, who in learned:
         hit = bad & tags
         if hit:
-            reasons.append(f"memory: {user['name']} said “{reason}” ({', '.join(sorted(hit))})")
+            where = f"memory: {user['name']} said" if who == user["name"] else "group memory says"
+            reasons.append(f"{where} “{reason}” ({', '.join(sorted(hit))})")
             break
     return reasons
 

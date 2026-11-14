@@ -5,11 +5,19 @@
     improve(dataset)               consolidate feedback into the permanent graph
     forget(dataset)
 
-Two backends behind the same calls:
-  - dict:   always on. Keyword recall, instant, no dependencies. It is also the safety net for cognee.
-  - cognee: used when `import cognee` works (cognee needs Python >= 3.10) and MEMORY_BACKEND != "dict".
-            Session memory works with no API key; improve() builds the permanent graph and needs LLM_API_KEY.
-Every cognee call is wrapped: if it fails or is slow, we log once and answer from the dict, so the demo never dies.
+Datasets (memory layout):
+  user_<id>     one per traveler: that traveler's own Advocate writes it; other Advocates may read it
+  trip_<id>     the group's shared memory (also the Band room's memory): decisions, group rejections,
+                notes any Advocate shares. Every Advocate reads it.
+
+Backends behind the same calls:
+  - dict:         always on. Keyword recall, instant, no dependencies. Safety net for cognee.
+  - cognee cloud: when COGNEE_SERVICE_URL + COGNEE_API_KEY are set (in the environment or in .env next to
+                  this file). The whole team then shares one memory on the tenant, and improve() runs server-side.
+  - cognee local: when cognee is importable (Python >= 3.10) but no cloud URL. Session memory needs no key;
+                  improve() needs LLM_API_KEY.
+MEMORY_BACKEND=dict forces the dict. Every cognee call is wrapped: if it fails or is slow, we log once and
+answer from the dict, so the demo never dies.
 
 cognee is async; we run it on one private event loop in a background thread, so it works from the
 Coordinator's thread and from Streamlit alike.
@@ -22,7 +30,29 @@ import os
 import re
 import threading
 
-TIMEOUT_S = float(os.getenv("MEMORY_TIMEOUT_S") or 8)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_dotenv(path: str) -> None:
+    """Minimal .env reader (KEY=value lines). Real environment variables win."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip().removeprefix("export ").strip()
+            os.environ.setdefault(key, val.strip().strip('"').strip("'"))
+
+
+_load_dotenv(os.path.join(_HERE, ".env"))
+if os.getenv("COGNEE_BASE_URL") and not os.getenv("COGNEE_SERVICE_URL"):  # the Claude plugin's name for it
+    os.environ["COGNEE_SERVICE_URL"] = os.environ["COGNEE_BASE_URL"]
+
+CLOUD = bool(os.getenv("COGNEE_SERVICE_URL"))
+TIMEOUT_S = float(os.getenv("MEMORY_TIMEOUT_S") or (20 if CLOUD else 15))
 
 # The dict store is saved to a JSON file so separate processes share one memory: the Coordinator run,
 # P1's app, and the Band Advocate agents (which call p2cli.py). MEMORY_FILE="" keeps it in-process only.
@@ -80,6 +110,26 @@ _loop: asyncio.AbstractEventLoop | None = None
 _warned: set[str] = set()
 
 
+def _connect() -> bool:
+    """Route every cognee call to the Cognee Cloud tenant. On failure, fall back to the dict for this process."""
+    global _cognee
+    url = os.environ["COGNEE_SERVICE_URL"].rstrip("/")
+    try:
+        fut = asyncio.run_coroutine_threadsafe(_cognee.serve(url=url, api_key=os.getenv("COGNEE_API_KEY", "")), _loop)
+        fut.result(timeout=TIMEOUT_S)
+        return True
+    except Exception as exc:
+        print(f"[memory] could not connect to Cognee Cloud at {url} ({type(exc).__name__}: {exc}); "
+              "using dict memory", flush=True)
+        _cognee = None
+        return False
+
+
+def _improving() -> bool:
+    """improve() needs an LLM: server-side on Cognee Cloud, LLM_API_KEY locally."""
+    return CLOUD or bool(os.getenv("LLM_API_KEY"))
+
+
 def _run(coro_fn, *args, **kwargs):
     """Run an async cognee call on our private loop and wait for it. Returns None on any failure."""
     global _loop
@@ -88,6 +138,10 @@ def _run(coro_fn, *args, **kwargs):
     if _loop is None:
         _loop = asyncio.new_event_loop()
         threading.Thread(target=_loop.run_forever, daemon=True, name="cognee-loop").start()
+        if CLOUD and not _connect():
+            return None
+    if _cognee is None:  # cloud connection failed: dict only from now on
+        return None
     name = getattr(coro_fn, "__name__", "call")
     try:
         fut = asyncio.run_coroutine_threadsafe(coro_fn(*args, **kwargs), _loop)
@@ -154,7 +208,7 @@ def remember(dataset: str, text: str) -> None:
         _DICT[dataset].append(text)
         _save()
     if _cognee is not None:
-        _run(_cognee.remember, text, dataset_name=dataset, session_id=dataset)
+        _run(_cognee.remember, text, dataset_name=dataset, session_id=dataset, self_improvement=_improving())
 
 
 def recall(dataset: str, query: str, top_k: int = 5) -> list[str]:
@@ -176,8 +230,8 @@ def recall(dataset: str, query: str, top_k: int = 5) -> list[str]:
 
 def improve(dataset: str) -> None:
     """Fold this dataset's session memory into cognee's permanent graph. No-op on the dict backend,
-    or when there is no LLM_API_KEY (graph building needs an LLM)."""
-    if _cognee is None or not os.getenv("LLM_API_KEY"):
+    or locally without LLM_API_KEY (graph building needs an LLM; Cognee Cloud has its own)."""
+    if _cognee is None or not _improving():
         return
     _run(_cognee.improve, dataset=dataset, session_ids=[dataset])
 
@@ -200,7 +254,9 @@ def dump(dataset: str) -> list[str]:
 
 
 def backend() -> str:
-    return "cognee" if _cognee is not None else "dict"
+    if _cognee is None:
+        return "dict"
+    return "cognee-cloud" if CLOUD else "cognee-local"
 
 
 if __name__ == "__main__":
