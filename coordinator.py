@@ -319,6 +319,10 @@ def _checks(u: dict, plan: dict, st: dict) -> list[str]:
 def run_trip(trip: dict, users: list[dict], ask_human) -> dict:
     _STATE[trip["id"]] = {"options": {}, "rejected": set(), "vetoes": {}, "overrides": {}, "conceded": set(), "round": 1}
     st = _STATE[trip["id"]]
+    if os.getenv("TRANSPORT") == "band":
+        import band
+
+        band.assign_seats(users)  # each traveler's messages are posted by their own Advocate on Band
     slots = slots_for(users)
     plan: dict = {}
     _research(trip, users, slots, 1, constrained=False)
@@ -379,3 +383,7 @@ if __name__ == "__main__":
     print("\nFINAL PLAN")
     for slot, o in final.items():
         print(f"  {label(slot):12s} {o['title'] + ' (' + price(o) + ')' if o else 'skipped'}")
+    if os.getenv("TRANSPORT") == "band":
+        import band
+
+        band.flush()

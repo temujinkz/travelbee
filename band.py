@@ -1,0 +1,265 @@
+"""Band transport. Owner: P3.
+
+With TRANSPORT=band, every protocol.post() is also sent to the trip's Band room, posted by the agent that
+sent it (its own Band identity) and @mentioning the recipient. LOG stays the source of truth: sending runs in
+a background thread, and a Band failure never stops a run.
+
+Setup, in .env (see .env.example):
+    TRANSPORT=band
+    BAND_ROOM_ID=<chat room id>                  `python band.py` lists each agent's rooms with their IDs
+    BAND_COORDINATOR_KEY, BAND_RESEARCHER_KEY, BAND_ADVOCATE_1_KEY ... BAND_ADVOCATE_4_KEY (any order)
+    Each key's agent is looked up with GET /agent/me. A traveler's messages are posted by the Advocate whose
+    name contains the traveler's name (e.g. "Léa's Advocate"); travelers without one get a free Advocate in order.
+    BAND_REST_URL=https://app.band.ai/api/v1
+    BAND_DRY_RUN=1                                print the requests instead of sending them
+
+    python band.py          check keys, room, and which Advocate speaks for which demo traveler
+    python band.py hello    the Coordinator posts a test message to the room
+"""
+from __future__ import annotations
+
+import json
+import os
+import queue
+import ssl
+import sys
+import threading
+import unicodedata
+import urllib.error
+import urllib.request
+
+ROLES = ["coordinator", "researcher", "advocate_1", "advocate_2", "advocate_3", "advocate_4"]
+
+_seats: dict[str, str] = {}              # our agent id ("advocate_<user id>") -> role ("advocate_1".."advocate_4")
+_identities: dict[str, dict] | None = None  # role -> {"id", "name", "handle"} from GET /agent/me
+_participants: list[dict] | None = None
+_queue: queue.Queue = queue.Queue()
+_worker: threading.Thread | None = None
+_errors = 0
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """python.org Python on macOS ships without system CA certs; use certifi's bundle when available."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
+_SSL = _ssl_context()
+
+
+def _dry() -> bool:
+    return os.getenv("BAND_DRY_RUN") == "1"
+
+
+def _room() -> str | None:
+    return os.getenv("BAND_ROOM_ID")
+
+
+def _key(role: str) -> str | None:
+    return os.getenv(f"BAND_{role.upper()}_KEY") or ("dry-run" if _dry() else None)
+
+
+def _plain(s: str) -> str:
+    return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower().strip()
+
+
+def _http(method: str, path: str, key: str, body: dict | None = None):
+    url = os.getenv("BAND_REST_URL", "https://app.band.ai/api/v1").rstrip("/") + path
+    if _dry():
+        print(f"[band dry-run] {method} {path} {json.dumps(body, ensure_ascii=False) if body else ''}", flush=True)
+        return None
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "X-API-Key": key, "Content-Type": "application/json", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL) as resp:
+            raw = resp.read()
+            return json.loads(raw) if raw else None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"{method} {url} -> HTTP {exc.code}: {detail}") from None
+
+
+def _body(data):
+    return data.get("data", data) if isinstance(data, dict) else data
+
+
+# ---------------------------------------------------------------- who is who
+def identities() -> dict[str, dict]:
+    """Ask Band who each configured key is (GET /agent/me), once."""
+    global _identities
+    if _identities is None:
+        found = {}
+        for role in ROLES:
+            key = _key(role)
+            if not key:
+                continue
+            if _dry():
+                name = role.replace("_", " ").title()
+                found[role] = {"id": f"dry-{role}", "name": name, "handle": f"team/{role}"}
+                continue
+            try:
+                me = _body(_http("GET", "/agent/me", key)) or {}
+                found[role] = {"id": me.get("id"), "name": me.get("name"), "handle": me.get("handle")}
+            except Exception as exc:
+                _report(exc)
+        _identities = found
+    return _identities
+
+
+def assign_seats(users: list[dict]) -> None:
+    """Pick the Advocate that speaks for each traveler: the one named after them, else the next free one."""
+    _seats.clear()
+    ids = identities()
+    free = [r for r in ROLES[2:] if r in ids] or list(ROLES[2:])
+    for u in users:
+        for role in free:
+            if _plain(u["name"]) and _plain(u["name"]) in _plain(ids.get(role, {}).get("name", "")):
+                _seats[f"advocate_{u['id']}"] = role
+                free.remove(role)
+                break
+    for u in users:
+        if f"advocate_{u['id']}" not in _seats and free:
+            _seats[f"advocate_{u['id']}"] = free.pop(0)
+
+
+def _role(agent_id: str) -> str | None:
+    if agent_id in ("coordinator", "researcher"):
+        return agent_id
+    if agent_id.startswith("advocate_"):
+        if agent_id not in _seats:
+            free = [r for r in ROLES[2:] if r not in _seats.values()]
+            if not free:
+                return None
+            _seats[agent_id] = free[0]
+        return _seats[agent_id]
+    return "coordinator"  # "human" responses and anything else are relayed by the Coordinator
+
+
+def participants(refresh: bool = False) -> list[dict]:
+    global _participants
+    if _participants is None or refresh:
+        if _dry():
+            _participants = [{"id": "dry-human", "name": "Traveler", "handle": "traveler", "type": "User"}]
+        else:
+            rows = _body(_http("GET", f"/agent/chats/{_room()}/participants", _key("coordinator")))
+            _participants = rows if isinstance(rows, list) else []
+    return _participants
+
+
+def _mentions(msg, sender_role: str) -> list[dict]:
+    ids = identities()
+    sender_id = ids.get(sender_role, {}).get("id")
+    if msg.to in ("human", "all"):
+        targets = [p for p in participants() if p.get("type") == "User"]
+    elif msg.to == "advocates":
+        targets = [ids[r] for r in ROLES[2:] if r in ids]
+    else:
+        role = _role(msg.to)
+        targets = [ids[role]] if role in ids else []
+    targets = [t for t in targets if t.get("id") and t.get("id") != sender_id]
+    if not targets:  # Band needs at least one mention of someone other than the sender
+        targets = [p for p in participants() if p.get("id") != sender_id][:1]
+    return [{"id": t["id"], "name": t.get("name"), "handle": t.get("handle")} for t in targets]
+
+
+def _content(msg, mentions: list[dict]) -> str:
+    who = " ".join(f"@{m['name']}" for m in mentions)
+    head = f"[{msg.type} · R{msg.round}]" + (" Humans said:" if msg.from_ == "human" else "")
+    refs = f" (refs: {', '.join(msg.refs)})" if msg.refs else ""
+    return f"{who} {head} {msg.content}{refs}".strip()
+
+
+# ---------------------------------------------------------------- sending
+def send(msg) -> None:
+    """Queue `msg` for the Band room. Non-blocking; a single worker keeps messages in order."""
+    global _worker
+    if _worker is None:
+        _worker = threading.Thread(target=_run, name="band-sender", daemon=True)
+        _worker.start()
+    _queue.put(msg)
+
+
+def flush() -> None:
+    """Wait until every queued message was sent (CLI runs call this before exiting)."""
+    if _worker is not None:
+        _queue.join()
+
+
+def _run() -> None:
+    while True:
+        msg = _queue.get()
+        try:
+            _deliver(msg)
+        except Exception as exc:
+            _report(exc)
+        finally:
+            _queue.task_done()
+
+
+def _deliver(msg) -> None:
+    role = _role(msg.from_)
+    key = _key(role) if role else None
+    if not _room() or not key:
+        raise RuntimeError(f"set BAND_ROOM_ID and BAND_{(role or msg.from_).upper()}_KEY")
+    mentions = _mentions(msg, role)
+    _http("POST", f"/agent/chats/{_room()}/messages", key,
+          {"message": {"content": _content(msg, mentions), "mentions": mentions}})
+
+
+def _report(exc: Exception) -> None:
+    global _errors
+    _errors += 1
+    if _errors <= 3:
+        print(f"[band] {exc}. LOG is unaffected.", file=sys.stderr, flush=True)
+    elif _errors == 4:
+        print("[band] more errors, muting further ones", file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------- setup check
+def check() -> None:
+    room = _room()
+    print(f"REST base: {os.getenv('BAND_REST_URL', 'https://app.band.ai/api/v1')}   room: {room or 'NOT SET'}")
+    ids = identities()
+    for role in ROLES:
+        key = os.getenv(f"BAND_{role.upper()}_KEY")
+        if not key:
+            print(f"  ✗ {role:12s} BAND_{role.upper()}_KEY not set")
+            continue
+        if role not in ids:
+            print(f"  ✗ {role:12s} key rejected by GET /agent/me")
+            continue
+        try:
+            chats = _body(_http("GET", "/agent/chats?page_size=100", key)) or []
+            in_room = any(c.get("id") == room for c in chats)
+            rooms = ", ".join(f"{c.get('title') or '(untitled)'} = {c.get('id')}" for c in chats[:5])
+            print(f"  {'✓' if in_room else '✗'} {role:12s} is “{ids[role]['name']}”; in room: {in_room}. Its rooms: {rooms or 'none'}")
+        except Exception as exc:
+            print(f"  ✗ {role:12s} {exc}")
+    if room and os.getenv("BAND_COORDINATOR_KEY"):
+        try:
+            people = [p for p in participants(refresh=True) if p.get("type") == "User"]
+            print("Humans in the room (pinged on human requests and decisions):", ", ".join(p.get("name", "?") for p in people) or "none")
+        except Exception as exc:
+            print(f"  ✗ listing participants: {exc}")
+    import mocks
+
+    assign_seats(mocks.USERS)
+    for u in mocks.USERS:
+        role = _seats.get(f"advocate_{u['id']}")
+        print(f"  demo traveler {u['name']:6s} → {ids.get(role, {}).get('name', role or 'no Advocate')}")
+
+
+if __name__ == "__main__":
+    import protocol  # loads .env
+
+    if sys.argv[1:] == ["hello"]:
+        send(protocol.Message(0, "coordinator", "human", "decision", "Hello from the Travelbee Coordinator 👋"))
+        flush()
+        print("sent (check the room)" if _errors == 0 else "failed, see above")
+    else:
+        check()
