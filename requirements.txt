@@ -1,3 +1,6 @@
 certifi          # SSL certificates for Band / Keenable on macOS python.org builds
 fast-flights     # real Google Flights fares for researcher.py (falls back to cache/mocks if missing)
 cognee==1.6.8; python_version >= "3.10"   # P2 memory (falls back to a dict without it)
+# P2 Band Advocates with shared Cognee memory (agents/advocates.py, Python >= 3.11)
+band-sdk[claude_sdk]>=6.0.1; python_version >= "3.11"
+cognee-integration-band @ https://github.com/topoteretes/cognee-integrations/archive/refs/heads/main.zip#subdirectory=integrations/band ; python_version >= "3.11"
