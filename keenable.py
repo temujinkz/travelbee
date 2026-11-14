@@ -19,6 +19,17 @@ class KeenableError(RuntimeError):
     pass
 
 
+
+def _ssl_context():
+    """python.org Python on macOS ships without system CA certs; use certifi's bundle when available."""
+    import ssl
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
 def available() -> bool:
     return bool(os.getenv("KEENABLE_API_KEY")) and os.getenv("KEENABLE_DISABLE") != "1"
 
@@ -33,7 +44,7 @@ def search(query: str, max_results: int = 5, snippet_max_length: int = 400, **fi
     req = urllib.request.Request(BASE_URL + "/v1/search", json.dumps(body).encode(),
                                  {"Content-Type": "application/json", "X-API-Key": key}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=float(os.getenv("KEENABLE_TIMEOUT_S") or 15)) as resp:
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=float(os.getenv("KEENABLE_TIMEOUT_S") or 15)) as resp:
             data = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         try:
