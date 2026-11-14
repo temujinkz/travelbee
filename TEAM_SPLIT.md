@@ -72,6 +72,18 @@ Checked on cognee 1.6.8:
 
 Mock: dict memory; `rank` just sorts by price.
 
+**Status (P2, branch `p2-memory-advocates`): done, without cognee.** Team decision: memory runs on the dict backend
+(`MEMORY_BACKEND=dict`), saved to `data/memory.json` so separate processes on one computer share it. The cognee
+code path (local or Cognee Cloud via `COGNEE_SERVICE_URL` / `COGNEE_API_KEY`) is still there behind the same calls,
+off by default.
+
+- Datasets: `user_<id>` per traveler (only their Advocate writes it), `trip_<id>` shared by the group and the Band room.
+  A rejection in `user_<id>` steers only that Advocate; a "The group rejected … because: …" fact in `trip_<id>` steers all.
+- Rejection reasons are mapped to the shared tag list (`advocate.TAG_WORDS`), e.g. "no layovers" → `layover`.
+- `advocate.py` uses `ranking.rank` (P4) as soon as `ranking.py` exists, else a local score.
+- The four Advocates also live in Band as Claude Code agents (instructions in `band/advocate_*.md`, tool `p2cli.py`).
+  They run on P2's computer, so memory is per computer: they save rejections the Coordinator announces in the room.
+
 ## P3: Coordinator & negotiation
 
 Files: `protocol.py`, `coordinator.py`
