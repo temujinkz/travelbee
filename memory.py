@@ -200,8 +200,51 @@ def _dict_recall(dataset: str, query: str, top_k: int) -> list[str]:
     return [f for _, _, f in hits[:top_k]]
 
 
+# ---------------------------------------------------------------- the shared brain
+# Every fact is ALSO written, permanently, into one dataset that every Band Advocate auto-recalls before each
+# message (cognee-integration-band's room memory). Session memory is fast but stays out of the graph, and
+# improve() did not move these facts into it (tested on Cognee Cloud), so we write them to the graph directly.
+SHARED_DATASET = os.getenv("COGNEE_BAND_DATASET", "travelbee_rooms")
+_shared = None
+
+
+def _shared_client():
+    """cognee-band's HTTP client on the shared dataset (Cognee Cloud or a local Cognee server), or None."""
+    global _shared
+    if _shared is None:
+        _shared = False
+        url = os.getenv("COGNEE_BASE_URL") or os.getenv("COGNEE_SERVICE_URL")
+        if url and os.getenv("MEMORY_BACKEND", "auto") != "dict":
+            try:
+                os.environ.setdefault("COGNEE_BASE_URL", url)
+                from cognee_band import CogneeClient, CogneeSettings
+                settings = CogneeSettings.resolve()
+                settings.dataset = SHARED_DATASET
+                _shared = CogneeClient(settings)
+            except Exception as exc:  # cognee-integration-band not installed (Python < 3.11): no shared brain
+                print(f"[memory] shared brain off ({type(exc).__name__}: {exc})", flush=True)
+    return _shared or None
+
+
+def _share(dataset: str, text: str) -> None:
+    client = _shared_client()
+    if client is None:
+        return
+    try:
+        res = client.remember(f"[{dataset}] {text}")  # background graph build server-side; returns at once
+        if isinstance(res, dict) and res.get("error") and "shared" not in _warned:
+            _warned.add("shared")
+            print(f"[memory] shared brain write failed: {res.get('error')}", flush=True)
+    except Exception as exc:
+        if "shared" not in _warned:
+            _warned.add("shared")
+            print(f"[memory] shared brain write failed ({type(exc).__name__}: {exc})", flush=True)
+
+
 # ---------------------------------------------------------------- public API (P3's contract)
-def remember(dataset: str, text: str) -> None:
+def remember(dataset: str, text: str, share: bool = True) -> None:
+    """Save a fact in `dataset` (instant: dict + cognee session), and, unless share=False, permanently in the
+    shared brain (SHARED_DATASET) so every Advocate sees it and it shows on the graph."""
     text = (text or "").strip()
     if not text:
         return
@@ -212,7 +255,9 @@ def remember(dataset: str, text: str) -> None:
         _DICT[dataset].append(text)
         _save()
     if _cognee is not None:
-        _run(_cognee.remember, text, dataset_name=dataset, session_id=dataset, self_improvement=_improving())
+        _run(_cognee.remember, text, dataset_name=dataset, session_id=dataset, self_improvement=False)
+    if share and dataset != SHARED_DATASET:
+        _share(dataset, text)
 
 
 def recall(dataset: str, query: str, top_k: int = 5) -> list[str]:
@@ -233,11 +278,11 @@ def recall(dataset: str, query: str, top_k: int = 5) -> list[str]:
 
 
 def improve(dataset: str) -> None:
-    """Fold this dataset's session memory into cognee's permanent graph. No-op on the dict backend,
-    or locally without LLM_API_KEY (graph building needs an LLM; Cognee Cloud has its own)."""
-    if _cognee is None or not _improving():
-        return
-    _run(_cognee.improve, dataset=dataset, session_ids=[dataset])
+    """Kept for P3's contract. Facts already reach the graph through remember() (shared brain), and
+    improve() on our plain-fact sessions processed nothing on Cognee Cloud (no_new_entries), so this is a
+    no-op. The self-improvement that works runs in the Band Advocates: cognee-integration-band improves
+    each room's Q&A session into the shared graph when the room closes or the agents restart."""
+    return
 
 
 def forget(dataset: str) -> None:

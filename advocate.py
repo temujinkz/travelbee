@@ -98,16 +98,16 @@ def onboard(user: dict) -> None:
     _onboarded.add(uid)
     a, name, ds = user.get("answers") or {}, user["name"], f"user_{uid}"
     if user.get("budget_per_night"):
-        memory.remember(ds, f"{name}'s budget is ${user['budget_per_night']} per night ({a.get('budget') or 'unspecified'})")
+        memory.remember(ds, f"{name}'s budget is ${user['budget_per_night']} per night ({a.get('budget') or 'unspecified'})", share=False)
     if user.get("home_city"):
-        memory.remember(ds, f"{name} flies from {user['home_city']}")
+        memory.remember(ds, f"{name} flies from {user['home_city']}", share=False)
     for key in ("pace", "food", "lodging"):
         if a.get(key):
-            memory.remember(ds, f"{name}'s preferred {key}: {a[key]}")
+            memory.remember(ds, f"{name}'s preferred {key}: {a[key]}", share=False)
     if a.get("activities"):
-        memory.remember(ds, f"{name} wants to do: {', '.join(a['activities'])}")
+        memory.remember(ds, f"{name} wants to do: {', '.join(a['activities'])}", share=False)
     if a.get("dealbreakers"):
-        memory.remember(ds, f"{name}'s dealbreakers: {', '.join(a['dealbreakers'])}")
+        memory.remember(ds, f"{name}'s dealbreakers: {', '.join(a['dealbreakers'])}", share=False)
 
 
 def _reasons(facts: list[str], who: str) -> list[tuple[str, set[str], str]]:
