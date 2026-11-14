@@ -59,6 +59,10 @@ from pydantic import BaseModel, Field  # noqa: E402
 import p2cli  # noqa: E402
 
 BAND_REST = os.getenv("BAND_REST_URL", "https://app.band.ai/api/v1").rstrip("/")
+if not BAND_REST.endswith("/api/v1"):
+    BAND_REST += "/api/v1"
+# band-sdk adds /api/v1 itself: give it the bare host, or every agent start fails with 404 on /agent/me
+os.environ["BAND_REST_URL"] = BAND_REST[: -len("/api/v1")]
 CREDS_FILE = os.path.join(ROOT, "data", "advocates.json")
 POLL_S = float(os.getenv("ADVOCATES_POLL_S") or 5)
 
@@ -123,6 +127,11 @@ def ensure_agent(user: dict, creds: dict) -> dict | None:
     uid, name = user["id"], user["name"]
     if uid in creds:
         return creds[uid]
+    for c in list(creds.values()):  # same name as a traveler we already have an agent for: reuse it
+        if _plain(c.get("traveler", "")) == _plain(name):
+            creds[uid] = dict(c, traveler=name)
+            _save_creds(creds)
+            return creds[uid]
     taken = {c["agent_id"] for c in creds.values()}
     for a in _legacy_agents():
         if a["agent_id"] not in taken and _plain(a["name"]) == _plain(f"{name}'s Advocate"):
@@ -284,6 +293,7 @@ async def serve() -> None:
     settings = CogneeSettings.resolve()
     client = CogneeClient(settings)
     running: dict[str, asyncio.Task] = {}
+    live: dict[str, asyncio.Task] = {}  # Band agent id -> its task: one agent never runs twice
     print(f"[advocates] watching {p2cli.USERS_DIR} for travelers (memory {settings.dataset} on {settings.base_url}, "
           f"P2 memory backend {memory.backend()})", flush=True)
     while True:
@@ -304,6 +314,9 @@ async def serve() -> None:
             except Exception as exc:
                 print(f"[advocates] {user['name']}: {exc}", flush=True)
                 continue
+            if c["agent_id"] in live and not live[c["agent_id"]].done():  # already running for a same-named traveler
+                running[uid] = live[c["agent_id"]]
+                continue
             inner = ClaudeSDKAdapter(
                 ClaudeSDKAdapterConfig(model=os.getenv("ADVOCATE_MODEL", "sonnet"),
                                        custom_section=instructions(user),
@@ -312,7 +325,7 @@ async def serve() -> None:
             )
             agent = Agent.create(adapter=CogneeMemoryAdapter(inner, settings=settings, client=client),
                                  agent_id=c["agent_id"], api_key=c["api_key"])
-            running[uid] = asyncio.create_task(agent.run(), name=f"advocate-{uid}")
+            running[uid] = live[c["agent_id"]] = asyncio.create_task(agent.run(), name=f"advocate-{uid}")
             print(f"[advocates] {c['name']} is live for {user['name']} ({uid})", flush=True)
         await asyncio.sleep(POLL_S)
 
