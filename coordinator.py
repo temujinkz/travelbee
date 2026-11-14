@@ -45,6 +45,10 @@ def _real_or_mock(module: str):
 
 
 researcher = _real_or_mock("researcher")  # research(trip, request) -> list[Option]
+if os.getenv("RESEARCH_AGENT") == "1":  # opt-in: GLM drives the researcher + web_search (research_agent.py)
+    import research_agent
+
+    researcher = research_agent
 advocate = _real_or_mock("advocate")      # evaluate(user, options, round), concede(user, lost, chosen, round)
 memory = _real_or_mock("memory")          # remember(dataset, text), improve(dataset)
 
