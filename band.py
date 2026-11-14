@@ -30,7 +30,8 @@ import urllib.request
 
 ROLES = ["coordinator", "researcher", "advocate_1", "advocate_2", "advocate_3", "advocate_4"]
 
-_seats: dict[str, str] = {}              # our agent id ("advocate_<user id>") -> role ("advocate_1".."advocate_4")
+_seats: dict[str, str] = {}
+_names: dict[str, str] = {}               # "advocate_<user id>" -> traveler name, for relayed messages              # our agent id ("advocate_<user id>") -> role ("advocate_1".."advocate_4")
 _identities: dict[str, dict] | None = None  # role -> {"id", "name", "handle"} from GET /agent/me
 _participants: list[dict] | None = None
 _queue: queue.Queue = queue.Queue()
@@ -112,32 +113,26 @@ def identities() -> dict[str, dict]:
 
 
 def assign_seats(users: list[dict]) -> None:
-    """Pick the Advocate that speaks for each traveler: the one named after them, else the next free one."""
+    """A traveler speaks through the Band Advocate named after them (e.g. "Léa's Advocate"). Everyone else is
+    relayed by the Coordinator under their own name, so any number of travelers works and nobody gets a wrong name."""
     _seats.clear()
+    _names.clear()
     ids = identities()
-    free = [r for r in ROLES[2:] if r in ids] or list(ROLES[2:])
+    free = [r for r in ROLES[2:] if r in ids]
     for u in users:
+        _names[f"advocate_{u['id']}"] = u["name"]
         for role in free:
             if _plain(u["name"]) and _plain(u["name"]) in _plain(ids.get(role, {}).get("name", "")):
                 _seats[f"advocate_{u['id']}"] = role
                 free.remove(role)
                 break
-    for u in users:
-        if f"advocate_{u['id']}" not in _seats and free:
-            _seats[f"advocate_{u['id']}"] = free.pop(0)
 
 
-def _role(agent_id: str) -> str | None:
+def _role(agent_id: str) -> str:
     if agent_id in ("coordinator", "researcher"):
         return agent_id
-    if agent_id.startswith("advocate_"):
-        if agent_id not in _seats:
-            free = [r for r in ROLES[2:] if r not in _seats.values()]
-            if not free:
-                return None
-            _seats[agent_id] = free[0]
-        return _seats[agent_id]
-    return "coordinator"  # "human" responses and anything else are relayed by the Coordinator
+    # a traveler's own Band Advocate if there is one; otherwise (and for "human") the Coordinator relays it
+    return _seats.get(agent_id, "coordinator")
 
 
 def participants(refresh: bool = False) -> list[dict]:
@@ -156,20 +151,27 @@ def _mentions(msg, sender_role: str) -> list[dict]:
     sender_id = ids.get(sender_role, {}).get("id")
     if msg.to in ("human", "all"):
         targets = [p for p in participants() if p.get("type") == "User"]
-    elif msg.to == "advocates":
-        targets = [ids[r] for r in ROLES[2:] if r in ids]
+    elif msg.to == "advocates":  # only the Band Advocates of this trip's travelers
+        targets = [ids[r] for r in sorted(set(_seats.values())) if r in ids]
     else:
         role = _role(msg.to)
         targets = [ids[role]] if role in ids else []
     targets = [t for t in targets if t.get("id") and t.get("id") != sender_id]
     if not targets:  # Band needs at least one mention of someone other than the sender
-        targets = [p for p in participants() if p.get("id") != sender_id][:1]
+        # prefer our own Researcher agent (no live session, so the mention pings nobody), then a human
+        quiet = [ids[r] for r in ("researcher", "coordinator") if r in ids and ids[r].get("id") != sender_id]
+        people = [p for p in participants() if p.get("id") != sender_id]
+        targets = (quiet or [p for p in people if p.get("type") == "User"] or people)[:1]
     return [{"id": t["id"], "name": t.get("name"), "handle": t.get("handle")} for t in targets]
 
 
 def _content(msg, mentions: list[dict]) -> str:
     who = " ".join(f"@{m['name']}" for m in mentions)
-    head = f"[{msg.type} · R{msg.round}]" + (" Humans said:" if msg.from_ == "human" else "")
+    head = f"[{msg.type} · R{msg.round}]"
+    if msg.from_ == "human":
+        head += " Humans said:"
+    elif msg.from_.startswith("advocate_") and msg.from_ not in _seats:  # relayed by the Coordinator
+        head += f" {_names.get(msg.from_, 'A traveler')}'s Advocate:"
     refs = f" (refs: {', '.join(msg.refs)})" if msg.refs else ""
     return f"{who} {head} {msg.content}{refs}".strip()
 
