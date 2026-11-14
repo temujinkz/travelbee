@@ -258,6 +258,7 @@ def _who_and_why(text: str, users: list[dict]) -> tuple[str, str]:
 def _ask_approval(trip: dict, users: list[dict], plan: dict, ask_human) -> dict | None:
     st = _STATE[trip["id"]]
     rnd = st["round"]
+    st["plan"] = dict(plan)  # the web bridge shows these items on the approval screen
     items = [(s, o) for s, o in plan.items() if o]
     summary = "; ".join(f"{label(s)}: {o['title']} ({price(o)})" for s, o in items)
     skipped = [label(s).lower() for s, o in plan.items() if not o]

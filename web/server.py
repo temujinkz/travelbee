@@ -308,7 +308,12 @@ def _plan(tid):
 
 def run_plan(tid):
     try:
-        _plan(tid)
+        if os.environ.get("AGENTS", "real") == "mock":  # the original stand-in negotiation above
+            _plan(tid)
+        else:  # the real agents: coordinator.run_trip (see web/bridge.py)
+            import bridge
+
+            bridge.run(tid, sys.modules[__name__])
     except TimeoutError:
         add_log(tid, 3, "coordinator", "all", "decision", "Planning paused because nobody answered in time. Start it again when ready.", sleep=False)
         set_state(tid, status="gathering", pending=None)
