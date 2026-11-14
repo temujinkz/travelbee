@@ -1,25 +1,36 @@
-"""Ranking. Owner: P4.   rank(user, options) -> list[(Option, float)], best first.
+"""Ranking and group decision. Owner: P4.
+
+    rank(user, options, notes=()) -> list[(Option, float)]     one traveler's view, best first
+    decide(users, options, notes=None) -> list[Decision]       the group's view, best first
 
 Superlinked SIE, two stages (sie.py):
-  1. Qwen3 Embedding 4B: embed the traveler's profile and each option, keep options by cosine similarity.
-  2. Qwen3 Reranker 4B: reorder the shortlist against the profile + budget.
-The final score blends the rerank score with a price-vs-budget term, so budget-conscious travelers still
-prefer cheaper options. Any SIE failure (no key, network, bad response) drops to the pure-Python scorer,
-so the demo never stalls. Set SIE_DISABLE=1 to force the fallback.
+  1. Qwen3 Embedding 4B: embed the traveler's profile and each option, keep the closest by cosine similarity.
+  2. Qwen3 Reranker 4B: reorder the shortlist against the profile (answers, budget, dealbreakers, and any
+     notes such as "rejected X because: Y"), blended with a price-vs-budget term.
+decide() scores every option for every traveler, rescales each traveler's scores to 0..1 so nobody
+dominates, and averages them. There is no fallback scorer: if Superlinked is unreachable, SIEError is raised.
 """
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 
 import sie
 
 SHORTLIST = 8
 PRICE_WEIGHT = {"tight": 1.0, "comfortable": 0.5, "splurge": -0.1}  # splurge: the nicer (pricier) option wins
 _vec_cache: dict[str, list[float]] = {}
-_warned = False
 
 
-def profile_text(user: dict) -> str:
+@dataclass
+class Decision:
+    option: dict
+    score: float                                              # group score, 0..1
+    by_user: dict[str, float] = field(default_factory=dict)   # traveler id -> 0..1
+
+
+def profile_text(user: dict, notes=()) -> str:
     a = user.get("answers") or {}
     parts = [f"{user['name']} travels from {user.get('home_city') or 'unknown'}."]
     if user.get("budget_per_night"):
@@ -31,6 +42,7 @@ def profile_text(user: dict) -> str:
         parts.append("Wants: " + ", ".join(a["activities"]) + ".")
     if a.get("dealbreakers"):
         parts.append("Dealbreakers (must avoid): " + ", ".join(a["dealbreakers"]) + ".")
+    parts += [f"Feedback: {n}" for n in notes]
     return " ".join(parts)
 
 
@@ -48,15 +60,10 @@ def _price_term(user: dict, o: dict) -> float:
     return -weight * o["price"] / (user.get("budget_per_night") or 100)
 
 
-def _fallback(user: dict, options: list[dict]) -> list[tuple[dict, float]]:
-    a = user.get("answers") or {}
-    prefs = (set(a.get("activities") or []) | {a.get("lodging"), a.get("food"), a.get("pace")}) - {None, "", "any"}
-    scored = [(o, len(prefs & set(o.get("tags") or [])) + _price_term(user, o)) for o in options]
-    return sorted(scored, key=lambda p: p[1], reverse=True)
-
-
-def _superlinked(user: dict, options: list[dict]) -> list[tuple[dict, float]]:
-    profile = profile_text(user)
+def rank(user: dict, options: list[dict], notes=()) -> list[tuple[dict, float]]:
+    if len(options) < 2:
+        return [(o, 0.0) for o in options]
+    profile = profile_text(user, notes)
     texts = {o["id"]: option_text(o) for o in options}
     missing = [i for i, t in texts.items() if t not in _vec_cache]
     if missing:
@@ -67,21 +74,29 @@ def _superlinked(user: dict, options: list[dict]) -> list[tuple[dict, float]]:
     by_sim = sorted(options, key=lambda o: _cos(query_vec, _vec_cache[texts[o["id"]]]), reverse=True)
     short, rest = by_sim[:SHORTLIST], by_sim[SHORTLIST:]
     rel = sie.score(profile, [texts[o["id"]] for o in short],
-                    instruction="Judge whether the trip option suits the traveler's budget, preferences and dealbreakers")
+                    instruction="Judge whether the trip option suits the traveler's budget, preferences, "
+                                "dealbreakers and feedback")
     ranked = sorted(((o, r + 0.15 * _price_term(user, o)) for o, r in zip(short, rel)),
                     key=lambda p: p[1], reverse=True)
     floor = min((s for _, s in ranked), default=0.0) - 1.0
     return ranked + [(o, floor - i) for i, o in enumerate(rest)]  # the tail keeps its embedding order
 
 
-def rank(user: dict, options: list[dict]) -> list[tuple[dict, float]]:
-    global _warned
-    if len(options) < 2 or not sie.available():
-        return _fallback(user, options)
-    try:
-        return _superlinked(user, options)
-    except Exception as exc:  # noqa: BLE001 - never let the ranker kill a negotiation
-        if not _warned:
-            print(f"[ranking] Superlinked failed ({type(exc).__name__}: {exc}); using local score", flush=True)
-            _warned = True
-        return _fallback(user, options)
+def _unit(scores: dict[str, float]) -> dict[str, float]:
+    lo, hi = min(scores.values()), max(scores.values())
+    return {k: 0.5 if hi == lo else (v - lo) / (hi - lo) for k, v in scores.items()}
+
+
+def decide(users: list[dict], options: list[dict], notes: dict[str, list[str]] | None = None) -> list[Decision]:
+    """Group ranking. Ties go to the cheaper option."""
+    if not options:
+        return []
+    if len(options) == 1:  # nothing to compare: it is the only option
+        return [Decision(options[0], 1.0, {u["id"]: 1.0 for u in users})]
+    notes = notes or {}
+    with ThreadPoolExecutor(max_workers=min(4, len(users))) as pool:
+        ranked = list(pool.map(lambda u: rank(u, options, notes.get(u["id"], ())), users))
+    per_user = {u["id"]: _unit({o["id"]: s for o, s in r}) for u, r in zip(users, ranked)}
+    out = [Decision(o, sum(per_user[u["id"]][o["id"]] for u in users) / len(users),
+                    {u["id"]: per_user[u["id"]][o["id"]] for u in users}) for o in options]
+    return sorted(out, key=lambda d: (-d.score, d.option["price"]))

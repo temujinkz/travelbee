@@ -53,31 +53,24 @@ def _read_dir(path: str) -> list[dict]:
 
 
 def _users() -> list[dict]:
-    """Live travelers registered in the web app (data/users/*.json). The demo travelers are used only when
-    P2_DEMO=1, or when nobody has registered yet and P2_DEMO is not 0."""
+    """Travelers registered in the web app (data/users/*.json). There is no demo data."""
     live = [u for u in _read_dir(USERS_DIR) if u.get("id") and u.get("name")]
     for u in live:
         u.setdefault("answers", {})
         b = u.get("budget_per_night")
         if isinstance(b, float) and b.is_integer():
             u["budget_per_night"] = int(b)
-    if live and os.getenv("P2_DEMO") != "1":
-        return live
-    if os.getenv("P2_DEMO") == "0":
-        return live
-    import mocks
-    return mocks.USERS
+    return live
 
 
 def trip_of(uid: str) -> dict:
-    """The newest trip this traveler belongs to (web app data), else the demo trip."""
+    """The newest trip this traveler belongs to (web app data)."""
     trips = [t for t in _read_dir(TRIPS_DIR) if uid in (t.get("members") or [])]
-    if trips:
-        t = max(trips, key=lambda t: t.get("created_at") or t.get("id"))
-        return {"id": t["id"], "destination": t.get("destination") or "", "start": t.get("start") or "",
-                "end": t.get("end") or "", "members": list(t.get("members") or [])}
-    import mocks
-    return mocks.TRIP
+    if not trips:
+        sys.exit(f"no saved trip for traveler {uid!r}: create the trip and register travelers in the web app first")
+    t = max(trips, key=lambda t: t.get("created_at") or t.get("id"))
+    return {"id": t["id"], "destination": t.get("destination") or "", "start": t.get("start") or "",
+            "end": t.get("end") or "", "members": list(t.get("members") or [])}
 
 
 def _user(uid: str) -> dict:
@@ -88,18 +81,19 @@ def _user(uid: str) -> dict:
 
 
 def _options(kind: str | None, uid: str | None = None) -> list[dict]:
-    try:
-        import researcher
-        research = researcher.research
-    except ModuleNotFoundError:
-        import mocks
-        research = mocks.research
-    trip = trip_of(uid) if uid else __import__("mocks").TRIP
+    """Live options for the traveler's trip: the same searches the Coordinator runs."""
+    import researcher
+
+    if not uid:
+        sys.exit("options needs a traveler id: it searches that traveler's trip")
+    trip = trip_of(uid)
+    home = _user(uid).get("home_city") or ""
     kinds = [kind] if kind else ["flight", "stay", "activity"]
     out = []
     for k in kinds:
         try:
-            out += research(trip, {"type": k, "query": "", "max_price": None, "avoid_tags": []})
+            out += researcher.research(trip, {"type": k, "query": k, "tag": None, "max_price": None, "avoid_tags": [],
+                                              "origin": home, "destination": trip["destination"]})
         except Exception as exc:  # a live search failing must not kill the agent's tool
             print(f"(research for {k} failed: {exc})")
     return out

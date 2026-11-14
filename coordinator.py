@@ -45,10 +45,6 @@ def _real_or_mock(module: str):
 
 
 researcher = _real_or_mock("researcher")  # research(trip, request) -> list[Option]
-if os.getenv("RESEARCH_AGENT") == "1":  # opt-in: GLM drives the researcher + web_search (research_agent.py)
-    import research_agent
-
-    researcher = research_agent
 advocate = _real_or_mock("advocate")      # evaluate(user, options, round), concede(user, lost, chosen, round)
 memory = _real_or_mock("memory")          # remember(dataset, text), improve(dataset)
 
@@ -63,7 +59,7 @@ def _wanted(u: dict) -> list[str]:
 
 
 def slots_for(users: list[dict]) -> list[str]:
-    slots = ["flight", "stay"]
+    slots = ["flight", "stay", "activity:sightseeing"]  # every trip gets the destination's own highlight
     for u in users:
         for tag in _wanted(u):
             if f"activity:{tag}" not in slots:
@@ -119,7 +115,9 @@ def _request(trip: dict, users: list[dict], slot: str, constrained: bool) -> dic
     where = f"{trip['destination']}, {trip['start']} to {trip['end']}"
     query = {"flight": f"round-trip flights from {users[0].get('home_city', '')} to {where}",
              "stay": f"stay for {len(users)} people in {where}"}.get(t, f"{label(slot).lower()} near {trip['destination']}")
-    req = {"type": t, "query": query, "max_price": None, "avoid_tags": []}
+    req = {"type": t, "query": query, "max_price": None, "avoid_tags": [],
+           "tag": slot.split(":", 1)[1] if t == "activity" else None,      # new Researcher: activity tag
+           "origin": users[0].get("home_city") or "", "destination": trip["destination"]}
     if constrained:
         budgets = [u["budget_per_night"] for u in users if u.get("budget_per_night")]
         if t != "flight" and budgets:
@@ -140,7 +138,11 @@ def _research(trip: dict, users: list[dict], slots: list[str], rnd: int, constra
     post(Message(rnd, "coordinator", "researcher", "research_request", text))
     found = {}
     for slot, req in reqs.items():
-        results = [o for o in researcher.research(trip, req) if _fits(o, slot)]
+        try:
+            results = [o for o in researcher.research(trip, req) if _fits(o, slot)]
+        except Exception as exc:  # e.g. a Superlinked / Keenable outage: keep negotiating the other slots
+            print(f"[coordinator] research failed for {slot}: {exc}", flush=True)
+            results = []
         new = [o for o in results if o["id"] not in st["options"]]
         for o in new:
             st["options"][o["id"]] = o
@@ -340,31 +342,16 @@ def run_trip(trip: dict, users: list[dict], ask_human) -> dict:
                  f"Final plan approved, about ${_per_person(trip, plan):,.0f} per person. " + " | ".join(lines),
                  [o["id"] for o in plan.values() if o]))
     memory.remember(f"trip_{trip['id']}", "Final plan: " + "; ".join(f"{label(s)}: {o['title']}" for s, o in plan.items() if o))
-    if sie.available():  # Qwen3.8 27B writes the itinerary + where-to-stay pick; the template fallback adds nothing new
-        it = itinerary.build_itinerary(trip, users, plan)
-        st["itinerary"] = it
-        rec = it["stay_recommendation"]
-        post(Message(st["round"], "coordinator", "all", "decision",
-                     f"Itinerary: {it['summary']} Where to stay: {rec['why']}", [rec["option_id"]] if rec["option_id"] else []))
+    try:
+        if sie.available():  # Qwen3.8 27B writes the itinerary + where-to-stay pick; the template fallback adds nothing new
+            it = itinerary.build_itinerary(trip, users, plan)
+            st["itinerary"] = it
+            rec = it["stay_recommendation"]
+            post(Message(st["round"], "coordinator", "all", "decision",
+                         f"Itinerary: {it['summary']} Where to stay: {rec['why']}", [rec["option_id"]] if rec["option_id"] else []))
+    except Exception as exc:
+        print(f"[coordinator] itinerary skipped: {exc}", flush=True)
     return plan
-
-
-# ---------------------------------------------------------------- terminal demo
-def _scripted_human():
-    approvals = {"n": 0}
-
-    def ask(question: str, choices: list[str]) -> str:
-        if not choices:
-            answer = "Ben: No layovers please, we lose half a day"
-        elif choices[0] == "Approve":
-            approvals["n"] += 1
-            answer = "Reject flight" if approvals["n"] == 1 and "Reject flight" in choices else "Approve"
-        else:
-            answer = choices[0]
-        print(f"        🙋 human answers: {answer}", flush=True)
-        return answer
-
-    return ask
 
 
 def _console_human(question: str, choices: list[str]) -> str:
@@ -379,15 +366,28 @@ def _console_human(question: str, choices: list[str]) -> str:
             return choices[int(raw) - 1]
 
 
-if __name__ == "__main__":
-    import mocks
+def _load_saved(trip_id: str) -> tuple[dict, list[dict]]:
+    import json
+    from pathlib import Path
 
+    data = Path(__file__).resolve().parent / "data"
+    try:
+        trip = json.loads((data / "trips" / f"{trip_id}.json").read_text())
+        users = [json.loads((data / "users" / f"{uid}.json").read_text()) for uid in trip["members"]]
+    except FileNotFoundError as exc:
+        sys.exit(f"Not found: {exc.filename}. Create the trip and have travelers answer in the web app first.")
+    return trip, users
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: python coordinator.py <trip_id>   (trips come from the web app: python3 web/server.py)")
     os.environ.setdefault("PRINT_LOG", "1")
-    os.environ.setdefault("PACE_S", "0.05")
-    final = run_trip(mocks.TRIP, mocks.USERS, _console_human if "--ask" in sys.argv else _scripted_human())
+    trip, users = _load_saved(sys.argv[1])
+    final = run_trip(trip, users, _console_human)
     print("\nFINAL PLAN")
     for slot, o in final.items():
-        print(f"  {label(slot):12s} {o['title'] + ' (' + price(o) + ')' if o else 'skipped'}")
+        print(f"  {label(slot):12s} {o['title']} ({price(o)})")
     if os.getenv("TRANSPORT") == "band":
         import band
 

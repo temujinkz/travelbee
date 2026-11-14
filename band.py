@@ -267,12 +267,6 @@ def check() -> None:
             print("Humans in the room (pinged on human requests and decisions):", ", ".join(p.get("name", "?") for p in people) or "none")
         except Exception as exc:
             print(f"  ✗ listing participants: {exc}")
-    import mocks
-
-    assign_seats(mocks.USERS)
-    for u in mocks.USERS:
-        role = _seats.get(f"advocate_{u['id']}")
-        print(f"  demo traveler {u['name']:6s} → {ids.get(role, {}).get('name', role or 'no Advocate')}")
 
 
 if __name__ == "__main__":

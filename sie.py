@@ -32,6 +32,17 @@ class SIEError(RuntimeError):
         self.status, self.code = status, code
 
 
+
+def _ssl_context():
+    """python.org Python on macOS ships without system CA certs; use certifi's bundle when available."""
+    import ssl
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
 def available() -> bool:
     return bool(os.getenv("SUPERLINKED_API_KEY")) and os.getenv("SIE_DISABLE") != "1"
 
@@ -46,7 +57,7 @@ def _post(path: str, body: dict) -> dict:
     url = os.getenv("SIE_BASE_URL", "https://api.superlinked.com").rstrip("/") + path
     req = urllib.request.Request(url, json.dumps(body).encode(), headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=float(os.getenv("SIE_TIMEOUT_S") or 30)) as resp:
+        with urllib.request.urlopen(req, context=_ssl_context(), timeout=float(os.getenv("SIE_TIMEOUT_S") or 60)) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         try:
