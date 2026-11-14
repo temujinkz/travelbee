@@ -66,9 +66,17 @@ LOG: list[Message] = []
 _lock = threading.Lock()
 
 
+LISTENERS: list = []  # callables fn(msg), e.g. web/bridge.py copies every message into the trip's web log
+
+
 def post(msg: Message) -> Message:
     with _lock:
         LOG.append(msg)
+    for fn in list(LISTENERS):
+        try:
+            fn(msg)
+        except Exception as exc:  # a broken listener must never stop the negotiation
+            print(f"[protocol] listener error: {exc!r}", flush=True)
     if os.getenv("PRINT_LOG") == "1":
         print(f"[R{msg.round}] {msg.from_} → {msg.to}  {msg.type.upper()}: {msg.content}", flush=True)
     if os.getenv("TRANSPORT", "local") == "band":
