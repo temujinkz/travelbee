@@ -280,12 +280,16 @@ def _deadlock(trip: dict, users: list[dict], slot: str, plan: dict, ask_human, r
     def blockers(o: dict) -> str:
         return ", ".join(sorted({_name(users, uid) for uid, _ in vetoes.get(o["id"], [])})) or "nobody"
 
-    parts = [f"{o['title']} ({price(o)}) is vetoed by {blockers(o)}" for o in cands]
-    question = f"Your agents can't agree on {label(slot).lower()}: " + "; ".join(parts) + ". Which one, or skip it?"
-    choices = [o["title"] for o in cands] + [f"Skip {label(slot).lower()}"]
-    post(Message(rnd, "coordinator", "human", "human_request", question, [o["id"] for o in cands]))
+    # at most 3 options: fewest people against them, then cheapest
+    top = sorted(cands, key=lambda o: (len({uid for uid, _ in vetoes.get(o["id"], [])}), o["price"]))[:3]
+    who = sorted({_name(users, uid) for o in top for uid, _ in vetoes.get(o["id"], [])})
+    question = (f"Your agents can't agree on {label(slot).lower()}: every option breaks someone's limits"
+                + (f" ({', '.join(who)})" if who else "") + ". Pick the best compromise, or skip it.")
+    choice_of = {f"{o['title']} — {price(o)}": o for o in top}
+    choices = list(choice_of) + [f"Skip {label(slot).lower()} — we give up this {'activity' if slot.startswith('activity:') else 'item'}"]
+    post(Message(rnd, "coordinator", "human", "human_request", question, [o["id"] for o in top]))
     answer = ask_human(question, choices)
-    chosen = next((o for o in cands if o["title"] == answer), None)
+    chosen = choice_of.get(answer)
     post(Message(rnd, "human", "coordinator", "human_response", answer, [chosen["id"]] if chosen else []))
     plan[slot] = chosen
     if chosen:

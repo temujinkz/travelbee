@@ -357,6 +357,8 @@
     .confetti span { position: absolute; top: -30px; font-size: 22px; animation: fall 2.6s ease-in forwards; }
     @keyframes fall { to { transform: translateY(110vh) rotate(540deg); opacity: .2; } }
     @media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
+    .skip-row { margin-top: 10px; }
+    .flat.skip { width: 100%; justify-content: center; background: transparent; color: var(--text-2); box-shadow: 0 0 0 1px var(--line-control); border: 1px dashed var(--line-focus); font-size: 13px; }
     .trip-row { display: flex; align-items: center; gap: 8px; }
     .trip-row .trip-link { flex: 1; min-width: 0; }
     .trip-del { flex: none; font-size: 13px; color: var(--text-2); }
@@ -832,9 +834,12 @@
           return;
         }
         if (pending.kind === "choice") {
+          const isSkip = (c) => c.value.startsWith("Skip ");
+          const pick = (c) => h("button", { class: isSkip(c) ? "flat skip" : "flat", type: "button", text: c.label,
+            onclick: (e) => { e.target.disabled = true; answer({ question_id: pending.id, choice: c.value }); } });
           box.append(card([h("h2", { class: "heading", text: "🗳️ Your agents need the group" }), h("p", { class: "desc", text: pending.question }),
-            h("div", { class: "choice-list" }, pending.choices.map((c) =>
-              h("button", { class: "flat", type: "button", text: c.label, onclick: (e) => { e.target.disabled = true; answer({ question_id: pending.id, choice: c.value }); } }))),
+            h("div", { class: "choice-list" }, pending.choices.filter((c) => !isSkip(c)).map(pick)),
+            h("div", { class: "skip-row" }, pending.choices.filter(isSkip).map(pick)),
             state.voteBar, close]));
           return;
         }
