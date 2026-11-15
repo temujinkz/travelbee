@@ -395,6 +395,24 @@ def route(method, path, q, body):
                 save_trip(t)
             return {"user_id": u["id"]}
 
+        if method == "POST" and rest == ["delete"]:  # organizer only: remove the trip (kept in data/_deleted/)
+            check_admin(t, one("admin") or body.get("admin"))
+            with LOCK:
+                t = need_trip(t["id"])
+                waiting = ANSWERS.pop(t["id"], None)
+                if waiting:
+                    waiting["answer"] = {"cancel": True}
+                    waiting["event"].set()
+                bin_ = DATA / "_deleted"
+                (bin_ / "trips").mkdir(parents=True, exist_ok=True)
+                (bin_ / "users").mkdir(parents=True, exist_ok=True)
+                for uid in t["members"]:
+                    f = USERS / f"{uid}.json"
+                    if f.exists():
+                        f.replace(bin_ / "users" / f.name)
+                (TRIPS / f"{t['id']}.json").replace(bin_ / "trips" / f"{t['id']}.json")
+            return {"ok": True}
+
         if method == "POST" and rest == ["cancel"]:  # organizer only: cancel the trip, stop any vote
             check_admin(t, one("admin") or body.get("admin"))
             with LOCK:
