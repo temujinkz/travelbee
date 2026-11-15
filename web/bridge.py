@@ -78,8 +78,8 @@ def _wait(s, tid: str, kind: str, question: str, choices=None, plan=None, voters
                                                   "kind": kind, "question": question, "choices": choices,
                                                   "plan": plan, "summary": summary})
     answered = ev.wait(1800)
-    ans = s.ANSWERS[tid]["answer"] if answered else None
-    if (ans or {}).get("cancel") or (s.load_trip(tid) or {}).get("status") == "cancelled":
+    ans = s.ANSWERS.get(tid, {}).get("answer") if answered else None
+    if (ans or {}).get("cancel") or (s.load_trip(tid) or {}).get("status", "cancelled") == "cancelled":
         raise RuntimeError("trip cancelled")  # leave the trip cancelled; server.run_plan stays quiet
     s.set_state(tid, status="planning", pending=None)
     if not answered:
