@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 WEB = Path(__file__).resolve().parent
-DATA = WEB.parent / "data"
+DATA = Path(os.environ.get("TRAVELBEE_DATA") or WEB.parent / "data")  # tests use their own folder
 TRIPS = DATA / "trips"
 USERS = DATA / "users"
 LOCK = threading.RLock()
@@ -298,6 +298,8 @@ def run_plan(tid):
         add_log(tid, 3, "coordinator", "all", "decision", "Planning paused because nobody answered in time. Start it again when ready.", sleep=False)
         set_state(tid, status="gathering", pending=None)
     except Exception:
+        if (load_trip(tid) or {}).get("status") == "cancelled":
+            return  # the organizer cancelled the trip while the agents were working
         traceback.print_exc()
         add_log(tid, 3, "coordinator", "all", "decision", f"Planning stopped: {sys.exc_info()[1]}", sleep=False)
         set_state(tid, status="gathering", pending=None)
@@ -376,6 +378,8 @@ def route(method, path, q, body):
                 organizer = True
             with LOCK:
                 t = need_trip(t["id"])
+                if t["status"] == "cancelled":
+                    raise ApiError(400, "This trip was cancelled.")
                 if len(t["members"]) >= MAX_MEMBERS:
                     raise ApiError(400, "This trip is full.")
                 if organizer and any(load_user(m).get("is_organizer") for m in t["members"] if load_user(m)):
@@ -391,10 +395,26 @@ def route(method, path, q, body):
                 save_trip(t)
             return {"user_id": u["id"]}
 
+        if method == "POST" and rest == ["cancel"]:  # organizer only: cancel the trip, stop any vote
+            check_admin(t, one("admin") or body.get("admin"))
+            with LOCK:
+                t = need_trip(t["id"])
+                t["status"], t["pending"] = "cancelled", None
+                t["log"].append({"round": 0, "from": "coordinator", "to": "all", "type": "decision",
+                                 "content": "The organizer cancelled this trip.", "refs": [], "at": time.time()})
+                save_trip(t)
+                waiting = ANSWERS.get(t["id"])
+                if waiting:
+                    waiting["answer"] = {"cancel": True}
+                    waiting["event"].set()
+            return public_trip(t)
+
         if method == "POST" and rest == ["plan"]:
             check_admin(t, one("admin") or body.get("admin"))
             with LOCK:
                 t = need_trip(t["id"])
+                if t["status"] == "cancelled":
+                    raise ApiError(400, "This trip was cancelled.")
                 if t["status"] in ("planning", "awaiting"):
                     raise ApiError(400, "Planning is already running.")
                 if not t["destination"]:

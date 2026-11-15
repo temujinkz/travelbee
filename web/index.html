@@ -1021,6 +1021,12 @@
         refresh();
       };
       planBtn.addEventListener("click", startPlan);
+      const cancelBtn = h("button", { class: "textlink", type: "button", text: "Cancel trip", onclick: async () => {
+        if (!confirm("Cancel this trip for everyone? The agents stop and nobody can join any more.")) return;
+        try { await api("/trips/" + TRIP + "/cancel" + qs, {}); announce("Trip cancelled"); } catch (e) { announce(e.message); }
+        refresh();
+      } });
+      planBtn.after(cancelBtn);
       const answer = async (payload) => {
         try { await api("/trips/" + TRIP + "/answer", { admin: ADMIN, ...payload }); } catch (e) { announce(e.message); state.pendingKey = ""; }
         refresh();
@@ -1090,8 +1096,10 @@
           }
         }
         const n = d.members.length;
-        planBtn.disabled = n < 2;
-        meta.textContent = n + " joined" + (n < 2 ? ". Plan once two have answered." : "");
+        const cancelled = status === "cancelled";
+        planBtn.disabled = n < 2 || cancelled;
+        cancelBtn.hidden = cancelled;
+        meta.textContent = cancelled ? "This trip was cancelled." : n + " joined" + (n < 2 ? ". Plan once two have answered." : "");
 
         logCard.hidden = !d.log.length;
         renderLog(logBox, d.log, state);
@@ -1143,6 +1151,7 @@
         planning: "Your agent is negotiating with the others now.",
         awaiting: "The agents are waiting on a human answer.",
         done: "The plan is final.",
+        cancelled: "The organizer cancelled this trip.",
       };
       function paint(d) {
         tripP.textContent = tripLine(d.trip);

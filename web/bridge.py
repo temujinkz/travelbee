@@ -72,14 +72,19 @@ def _wait(s, tid: str, kind: str, question: str, choices=None, plan=None, voters
     qid = secrets.token_hex(4)
     ev = threading.Event()
     s.ANSWERS[tid] = {"qid": qid, "event": ev, "answer": None}
+    if (s.load_trip(tid) or {}).get("status") == "cancelled":
+        raise RuntimeError("trip cancelled")
     s.set_state(tid, status="awaiting", pending={"id": qid, "to": "group", "voters": voters or [], "votes": {},
                                                   "kind": kind, "question": question, "choices": choices,
                                                   "plan": plan, "summary": summary})
     answered = ev.wait(1800)
+    ans = s.ANSWERS[tid]["answer"] if answered else None
+    if (ans or {}).get("cancel") or (s.load_trip(tid) or {}).get("status") == "cancelled":
+        raise RuntimeError("trip cancelled")  # leave the trip cancelled; server.run_plan stays quiet
     s.set_state(tid, status="planning", pending=None)
     if not answered:
         raise TimeoutError()
-    return s.ANSWERS[tid]["answer"]
+    return ans
 
 
 def run(tid: str, s) -> None:
@@ -142,5 +147,7 @@ def _run(tid: str, s) -> None:
         plan = coordinator.run_trip(trip, users, ask_human)
     finally:
         protocol.LISTENERS.remove(copy_to_web_log)
+    if (s.load_trip(tid) or {}).get("status") == "cancelled":
+        return
     s.set_state(tid, plan=[o for o in plan.values() if o], summary=summarize(trip, users, plan),
                 status="done", pending=None)
