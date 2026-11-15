@@ -128,11 +128,28 @@ def clean_date(v):
     return v
 
 
-def apply_details(t, body):
-    dest = clean(body.get("destination"), 80)
+def fix_place(text):
+    """Correct typos in a city name with places.py ("Pariss" -> "Paris"); keeps the text if that fails."""
+    if not text:
+        return text
+    root = str(WEB.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    import protocol  # noqa: F401  (loads .env)
+    import places
+
+    return places.normalize(text)
+
+
+def apply_details(t, body, require_dates=False):
+    dest = fix_place(clean(body.get("destination"), 80))
     start, end = clean_date(body.get("start")), clean_date(body.get("end"))
-    if start and end and end < start:
-        raise ApiError(400, "The end date is before the start date.")
+    if require_dates and not (start and end):
+        raise ApiError(400, "Add both travel dates.")
+    if start and start < datetime.date.today().isoformat():
+        raise ApiError(400, "The departure date is in the past.")
+    if start and end and end <= start:
+        raise ApiError(400, "The return date must be after the departure date.")
     t["destination"], t["start"], t["end"] = dest, start, end
 
 
@@ -184,10 +201,28 @@ def public_trip(t):
     }
 
 
+def _voter_id(t, uid=None, admin=False):
+    """Who is voting: the traveler, or (organizer link) the organizer's own traveler record."""
+    if uid:
+        return uid
+    if admin:
+        org = next((m for m in t["members"] if (load_user(m) or {}).get("is_organizer")), None)
+        return org or "organizer"
+    return None
+
+
 def pending_view(t, uid=None, admin=False):
     p = t.get("pending")
     if not p:
         return None
+    if p["to"] == "group":  # a group vote: every traveler sees it and votes
+        names = {m: (load_user(m) or {}).get("name", "a traveler") for m in p.get("voters", [])}
+        votes = p.get("votes", {})
+        me = _voter_id(t, uid, admin)
+        return {"id": p["id"], "kind": p["kind"], "question": p["question"], "mine": True, "group": True,
+                "choices": p.get("choices"), "plan": p.get("plan"), "summary": p.get("summary"),
+                "voted": [names.get(v, "the organizer") for v in votes], "waiting": [n for m, n in names.items() if m not in votes],
+                "my_vote": votes.get(me), "can_close": bool(admin and votes)}
     mine = admin or (uid is not None and p["to"] == uid)
     view = {"id": p["id"], "kind": p["kind"], "question": p["question"], "mine": mine}
     if mine:
@@ -197,6 +232,29 @@ def pending_view(t, uid=None, admin=False):
         name = (load_user(p["to"]) or {}).get("name") if p["to"] != "organizer" else "the organizer"
         view["waiting_for"] = name or "a traveler"
     return view
+
+
+def tally(p):
+    """Majority decision from the group's votes (ties: the earliest vote wins)."""
+    votes = list(p.get("votes", {}).items())
+    if p["kind"] == "choice":
+        counts = {}
+        for _, v in votes:
+            counts[v["choice"]] = counts.get(v["choice"], 0) + 1
+        best = max(counts.values())
+        return {"choice": next(v["choice"] for _, v in votes if counts[v["choice"]] == best), "by": "group"}
+    approve = sum(1 for _, v in votes if v["choice"] == "approve")
+    rejects = [(m, v) for m, v in votes if v["choice"] == "reject"]
+    if approve >= len(rejects):
+        return {"choice": "approve", "by": "group"}
+    per_item = {}
+    for _, v in rejects:
+        per_item[v["item_id"]] = per_item.get(v["item_id"], 0) + 1
+    item = max(per_item, key=per_item.get)
+    m, first = next((m, v) for m, v in rejects if v["item_id"] == item)
+    name = (load_user(m) or {}).get("name")
+    reason = first.get("reason") or "no reason given"
+    return {"choice": "reject", "item_id": item, "reason": f"{name}: {reason}" if name else reason, "by": "group"}
 
 
 # ---------------------------------------------------------------- planning
@@ -283,7 +341,7 @@ def route(method, path, q, body):
             check_admin(t, one("admin"))
             members = [load_user(uid) for uid in t["members"]]
             return {"trip": public_trip(t), "members": [m for m in members if m], "log": t["log"],
-                    "pending": pending_view(t, admin=True), "plan": t["plan"]}
+                    "pending": pending_view(t, admin=True), "plan": t["plan"], "summary": t.get("summary")}
 
         if method == "GET" and rest == ["export"]:
             check_admin(t, one("admin"))
@@ -295,13 +353,13 @@ def route(method, path, q, body):
             if not u or u["trip_id"] != t["id"]:
                 raise ApiError(403, "That personal link is not valid.")
             return {"trip": public_trip(t), "user": u, "log": t["log"],
-                    "pending": pending_view(t, uid=u["id"]), "plan": t["plan"]}
+                    "pending": pending_view(t, uid=u["id"]), "plan": t["plan"], "summary": t.get("summary")}
 
         if method == "POST" and rest == ["details"]:
             check_admin(t, one("admin") or body.get("admin"))
             with LOCK:
                 t = need_trip(t["id"])
-                apply_details(t, body)
+                apply_details(t, body, require_dates=True)
                 save_trip(t)
             threading.Thread(target=trip_activities, args=(t,), daemon=True).start()
             return public_trip(t)
@@ -324,7 +382,7 @@ def route(method, path, q, body):
                     raise ApiError(400, "The organizer has already answered.")
                 u = {
                     "id": secrets.token_urlsafe(9), "trip_id": t["id"], "name": name,
-                    "budget_per_night": budget, "home_city": clean(body.get("home_city"), 80),
+                    "budget_per_night": budget, "home_city": fix_place(clean(body.get("home_city"), 80)),
                     "answers": clean_answers(body.get("answers"), t), "is_organizer": organizer,
                     "created_at": time.time(),
                 }
@@ -341,6 +399,8 @@ def route(method, path, q, body):
                     raise ApiError(400, "Planning is already running.")
                 if not t["destination"]:
                     raise ApiError(400, "Add a destination before planning.")
+                if not (t.get("start") and t.get("end")):
+                    raise ApiError(400, "Add the travel dates before planning.")
                 if len(t["members"]) < 2:
                     raise ApiError(400, "Wait for at least two travelers to answer.")
                 t["status"], t["log"], t["plan"], t["pending"] = "planning", [], None, None
@@ -359,6 +419,34 @@ def route(method, path, q, body):
                 p, waiting = t.get("pending"), ANSWERS.get(t["id"])
                 if not p or not waiting or waiting["qid"] != body.get("question_id"):
                     raise ApiError(409, "That question is no longer open.")
+                if p["to"] == "group":
+                    if body.get("close"):  # the organizer closes the vote with the votes so far
+                        if not admin or not p.get("votes"):
+                            raise ApiError(400, "Only the organizer can close a vote, once someone has voted.")
+                    else:
+                        voter = _voter_id(t, uid, admin)
+                        if voter not in p.get("voters", []) and voter != "organizer":
+                            raise ApiError(403, "You are not part of this trip.")
+                        choice = body.get("choice")
+                        if p["kind"] == "choice":
+                            if choice not in {c["value"] for c in p["choices"]}:
+                                raise ApiError(400, "Pick one of the choices.")
+                            vote = {"choice": choice}
+                        else:
+                            if choice not in ("approve", "reject"):
+                                raise ApiError(400, "Approve or reject.")
+                            vote = {"choice": choice}
+                            if choice == "reject":
+                                if body.get("item_id") not in {o["id"] for o in p["plan"]}:
+                                    raise ApiError(400, "Pick the item to reject.")
+                                vote.update(item_id=body["item_id"], reason=clean(body.get("reason"), 300))
+                        p.setdefault("votes", {})[voter] = vote
+                        t["pending"] = p
+                        save_trip(t)
+                    if body.get("close") or all(v in p.get("votes", {}) for v in p.get("voters", [])):
+                        waiting["answer"] = tally(p)
+                        waiting["event"].set()
+                    return {"ok": True}
                 if not (admin or (uid and uid == p["to"])):
                     raise ApiError(403, "This question is for someone else.")
                 choice = body.get("choice")

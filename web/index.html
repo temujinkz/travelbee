@@ -323,6 +323,41 @@
       .glass { background-image: none; box-shadow: none; border: 1px solid ButtonText; }
       .glass::before, .glass::after { display: none; }
     }
+
+    /* ---- plan summary + group vote ---- */
+    .plan-hero { text-align: center; padding: 6px 0 14px; }
+    .plan-hero .big { font: 600 30px/1.1 var(--font-sans); color: var(--text-1); letter-spacing: -0.02em; }
+    .plan-hero .small { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+    .plan-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 18px; }
+    .total-box { background: var(--field); border-radius: 14px; padding: 12px 14px; }
+    .total-box .lbl { color: var(--text-2); font-size: 12px; }
+    .total-box .val { font: 600 22px/1.2 var(--font-sans); color: var(--text-1); }
+    .plan-sec { margin: 0 0 16px; }
+    .plan-h { margin: 0 0 8px; font: 600 14px/1.3 var(--font-sans); color: var(--text-1); }
+    .pcard { border-radius: 14px; box-shadow: 0 0 0 1px var(--line); padding: 12px 14px; margin-bottom: 8px; }
+    .pc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .pc-title { color: var(--text-1); font-size: 14px; }
+    .pc-sub { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+    .pc-price { font-weight: 600; color: var(--text-1); white-space: nowrap; }
+    .who-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip-name { background: var(--field); border-radius: 999px; padding: 2px 9px; font-size: 12px; color: var(--text-1); }
+    .people { display: grid; gap: 8px; }
+    .person { display: flex; align-items: center; gap: 10px; border-radius: 14px; box-shadow: 0 0 0 1px var(--line); padding: 10px 14px; }
+    .person .avatar { width: 30px; height: 30px; flex: none; border-radius: 999px; background: var(--field); display: grid; place-items: center; font-weight: 600; color: var(--text-1); }
+    .person .pname { flex: 1; min-width: 0; color: var(--text-1); }
+    .person .pname small { display: block; color: var(--text-2); font-size: 12px; }
+    .person .ptotal { font-weight: 600; color: var(--text-1); }
+    .mood { font-size: 12px; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+    .mood.ok { background: rgb(47 158 107 / .12); color: rgb(30 110 72); }
+    .mood.meh { background: rgb(227 150 40 / .14); color: rgb(150 90 10); }
+    .vote-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 0; color: var(--text-2); font-size: 13px; }
+    .vote-bar .done { background: rgb(47 158 107 / .12); color: rgb(30 110 72); border-radius: 999px; padding: 2px 9px; }
+    .vote-bar .todo { background: var(--field); border-radius: 999px; padding: 2px 9px; }
+    .confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 50; }
+    .confetti span { position: absolute; top: -30px; font-size: 22px; animation: fall 2.6s ease-in forwards; }
+    @keyframes fall { to { transform: translateY(110vh) rotate(540deg); opacity: .2; } }
+    @media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
+    .person-wrap .detail { margin: 6px 4px 0; color: var(--text-2); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -708,6 +743,54 @@
           h("span", { class: "price", text: o.price ? money(o.price) + (o.type === "stay" ? " per night" : "") : "Free" }))));
     }
 
+
+    /* Final / proposed plan: who flies what, the stay over all nights, activities, cost per person + group. */
+    function renderSummary(sm, final) {
+      const sec = (title, body) => h("section", { class: "plan-sec" }, h("h3", { class: "plan-h", text: title }), body);
+      const kids = [];
+      if (final) kids.push(h("div", { class: "plan-hero" }, h("div", { class: "big", text: "🎉 Trip locked in!" }),
+        h("div", { class: "small", text: sm.people.filter((p) => p.happy).length + " of " + sm.people.length + " travelers have every limit respected" })));
+      kids.push(h("div", { class: "plan-totals" },
+        h("div", { class: "total-box" }, h("div", { class: "lbl", text: "Per person (average)" }), h("div", { class: "val", text: money(Math.round(sm.per_person)) })),
+        h("div", { class: "total-box" }, h("div", { class: "lbl", text: "Whole group" }), h("div", { class: "val", text: money(Math.round(sm.group_total)) }))));
+      if (sm.flights.length) kids.push(sec("✈️ Flights", h("div", {}, sm.flights.map((f) => h("div", { class: "pcard" },
+        h("div", { class: "pc-top" }, h("span", { class: "who-chips" }, f.travelers.map((n) => h("span", { class: "chip-name", text: n }))), h("span", { class: "pc-price", text: money(f.price) })),
+        h("div", { class: "pc-title", text: f.title }),
+        h("div", { class: "pc-sub", text: (f.origin ? "From " + f.origin + " · " : "") + "round-trip, per person" }))))));
+      if (sm.stay) kids.push(sec("🏨 Stay", h("div", { class: "pcard" },
+        h("div", { class: "pc-top" }, h("span", { class: "pc-title", text: sm.stay.title }), h("span", { class: "pc-price", text: money(Math.round(sm.stay.total)) })),
+        h("div", { class: "pc-sub", text: money(sm.stay.price) + " per night × " + sm.stay.nights + " nights, per person" }))));
+      if (sm.activities.length) kids.push(sec("🎟️ Activities", h("div", {}, sm.activities.map((a) => h("div", { class: "pcard" },
+        h("div", { class: "pc-top" }, h("span", { class: "chip-name", text: a.label }), h("span", { class: "pc-price", text: a.price ? money(a.price) : "Free" })),
+        h("div", { class: "pc-title", text: a.title }), h("div", { class: "pc-sub", text: "per person" }))))));
+      kids.push(sec("👥 Everyone's share", h("div", { class: "people" }, sm.people.map((p) => h("details", { class: "person-wrap" },
+        h("summary", { class: "person" },
+          h("span", { class: "avatar", text: (p.name || "?").charAt(0).toUpperCase() }),
+          h("span", { class: "pname" }, p.name, h("small", { text: p.home_city ? "from " + p.home_city : (p.flight || "") })),
+          h("span", { class: "mood " + (p.happy ? "ok" : "meh"), text: p.happy ? "✓ all limits met" : "⚠ compromise" }),
+          h("span", { class: "ptotal", text: money(Math.round(p.total)) })),
+        h("p", { class: "detail", text: (p.checks || []).join(" · ") }))))));
+      return h("div", {}, kids);
+    }
+
+    function celebrate() {
+      if (document.querySelector(".confetti")) return;
+      const box = h("div", { class: "confetti", "aria-hidden": "true" });
+      const bits = ["🎉", "✈️", "🌴", "🏨", "🎟️", "✨"];
+      for (let i = 0; i < 36; i++) {
+        const s = h("span", { text: bits[i % bits.length] });
+        s.style.left = Math.random() * 100 + "vw"; s.style.animationDelay = Math.random() * 0.8 + "s";
+        box.append(s);
+      }
+      document.body.append(box);
+      setTimeout(() => box.remove(), 3800);
+    }
+
+    function voteBar(p) {
+      return h("div", { class: "vote-bar" }, h("span", { text: "Votes " + p.voted.length + "/" + (p.voted.length + p.waiting.length) + ":" }),
+        p.voted.map((n) => h("span", { class: "done", text: "✓ " + n })), p.waiting.map((n) => h("span", { class: "todo", text: n })));
+    }
+
     function renderLog(box, log, state) {
       if (log.length < state.logLen) { box.textContent = ""; state.logLen = 0; }
       const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -722,6 +805,43 @@
 
     /* The open question, drawn only when it changes so typed text survives the polling. */
     function renderAction(box, pending, state, answer) {
+      if (pending && pending.group) {  // vote progress refreshes on every poll; the card only when my vote changes
+        const key = pending.id + ":" + JSON.stringify(pending.my_vote || null) + ":" + pending.can_close;
+        if (state.voteBar && key === state.pendingKey) { state.voteBar.replaceWith(state.voteBar = voteBar(pending)); return; }
+        state.pendingKey = key; box.textContent = ""; box.hidden = false;
+        state.voteBar = voteBar(pending);
+        const close = pending.can_close ? h("button", { class: "textlink", type: "button", text: "Close the vote now",
+          onclick: (e) => { e.target.disabled = true; answer({ question_id: pending.id, close: true }); } }) : null;
+        if (pending.my_vote) {
+          const v = pending.my_vote;
+          const what = v.choice === "approve" ? "approve the plan" : v.choice === "reject" ? "reject an item" : (pending.choices || []).find((c) => c.value === v.choice)?.label || v.choice;
+          box.append(card([h("h2", { class: "heading", text: "Thanks, your vote is in" }), h("p", { class: "desc", text: "You voted: " + what + ". The majority decides once everyone has voted." }),
+            pending.summary ? renderSummary(pending.summary, false) : null, state.voteBar, close]));
+          return;
+        }
+        if (pending.kind === "choice") {
+          box.append(card([h("h2", { class: "heading", text: "🗳️ Your agents need the group" }), h("p", { class: "desc", text: pending.question }),
+            h("div", { class: "choice-list" }, pending.choices.map((c) =>
+              h("button", { class: "flat", type: "button", text: c.label, onclick: (e) => { e.target.disabled = true; answer({ question_id: pending.id, choice: c.value }); } }))),
+            state.voteBar, close]));
+          return;
+        }
+        const item = h("select", { class: "input", "aria-label": "Item to reject" }, pending.plan.map((o) => h("option", { value: o.id, text: o.type + ": " + o.title })));
+        const reason = h("textarea", { class: "input area", "aria-label": "Why reject it", placeholder: "Why not? Your agent remembers this." });
+        const rejectForm = h("div", { hidden: true }, h("div", { class: "field" }, item), h("div", { class: "field" }, reason));
+        const foot = h("div", { class: "btn-row" });
+        const showButtons = () => { foot.textContent = ""; rejectForm.hidden = true; foot.append(
+          h("button", { class: "flat", type: "button", text: "Reject an item", onclick: showReject }),
+          h("button", { class: "glass glass-green glass-sm", type: "button", onclick: (e) => { e.currentTarget.disabled = true; answer({ question_id: pending.id, choice: "approve" }); } }, h("span", { text: "Approve plan" }))); };
+        const showReject = () => { foot.textContent = ""; rejectForm.hidden = false; reason.focus(); foot.append(
+          h("button", { class: "flat", type: "button", text: "Cancel", onclick: showButtons }),
+          h("button", { class: "glass glass-sm", type: "button", onclick: (e) => { e.currentTarget.disabled = true; answer({ question_id: pending.id, choice: "reject", item_id: item.value, reason: reason.value }); } }, h("span", { text: "Send my vote" }))); };
+        showButtons();
+        box.append(card([h("h2", { class: "heading", text: "🗳️ Vote on the plan" }), h("p", { class: "desc", text: pending.question }),
+          pending.summary ? renderSummary(pending.summary, false) : renderPlan(pending.plan), rejectForm, foot, state.voteBar, close]));
+        return;
+      }
+      state.voteBar = null;
       const key = pending ? pending.id + ":" + pending.mine : "none";
       if (key === state.pendingKey) return;
       state.pendingKey = key;
@@ -918,8 +1038,10 @@
           return;
         }
         const dest = h("input", { id: "dest", class: "input", type: "text", maxlength: "80", placeholder: "Miami, Lisbon, Tokyo", value: d.trip.destination, "aria-label": "Destination" });
-        const from = h("input", { id: "d-from", class: "input", type: "date", value: d.trip.start });
-        const to = h("input", { id: "d-to", class: "input", type: "date", value: d.trip.end });
+        const today = new Date().toISOString().slice(0, 10);
+        const from = h("input", { id: "d-from", class: "input", type: "date", value: d.trip.start, min: today, required: true });
+        const to = h("input", { id: "d-to", class: "input", type: "date", value: d.trip.end, min: d.trip.start || today, required: true });
+        from.addEventListener("change", () => { to.min = from.value || today; if (to.value && from.value && to.value <= from.value) to.value = ""; });
         const err = h("span", { class: "error", role: "alert", hidden: true });
         const go = h("button", { class: "glass glass-sm", type: "submit" }, h("span", { text: hasDest ? "Save" : "Continue" }));
         const form = h("form", { novalidate: true }, h("div", { class: "shell" },
@@ -927,13 +1049,16 @@
             h("h2", { class: "title", text: "Where are you going?" }),
             h("div", { class: "field", style: "margin-top:16px" }, dest),
             h("div", { class: "field row2" },
-              h("div", {}, h("label", { for: "d-from", text: "From (optional)" }), from),
-              h("div", {}, h("label", { for: "d-to", text: "To (optional)" }), to)),
+              h("div", {}, h("label", { for: "d-from", text: "Departure" }), from),
+              h("div", {}, h("label", { for: "d-to", text: "Return" }), to)),
             err),
           h("div", { class: "shell-foot" }, hasDest ? h("button", { class: "flat", type: "button", text: "Cancel", onclick: () => { editing = false; paint(latest); } }) : null, go)));
         form.addEventListener("submit", async (e) => {
           e.preventDefault();
           if (!dest.value.trim()) { err.textContent = "Add a destination."; err.hidden = false; dest.focus(); return; }
+          if (!from.value || !to.value) { err.textContent = "Add both travel dates."; err.hidden = false; (from.value ? to : from).focus(); return; }
+          if (from.value < today) { err.textContent = "The departure date is in the past."; err.hidden = false; from.focus(); return; }
+          if (to.value <= from.value) { err.textContent = "The return date must be after the departure date."; err.hidden = false; to.focus(); return; }
           go.disabled = true; err.hidden = true;
           try { await api("/trips/" + TRIP + "/details" + qs, { destination: dest.value, start: from.value, end: to.value }); editing = false; await refresh(); }
           catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
@@ -974,8 +1099,10 @@
         planBox.hidden = !(status === "done" && d.plan);
         if (!planBox.hidden) {
           planBox.textContent = "";
-          planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan),
+          planBox.append(card([d.summary ? renderSummary(d.summary, true) : h("h2", { class: "heading", text: "Final plan" }),
+            d.summary ? null : renderPlan(d.plan),
             h("button", { class: "textlink", type: "button", text: "Plan again", onclick: startPlan })]));
+          if (d.summary && !state.celebrated) { state.celebrated = true; celebrate(); }
         }
       }
       async function refresh() { paint(await api("/trips/" + TRIP + "/dashboard" + qs)); }
@@ -1024,7 +1151,11 @@
         renderLog(logBox, d.log, state);
         renderAction(action, d.pending, state, answer);
         planBox.hidden = !(d.trip.status === "done" && d.plan);
-        if (!planBox.hidden) { planBox.textContent = ""; planBox.append(card([h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan)])); }
+        if (!planBox.hidden) {
+          planBox.textContent = "";
+          planBox.append(card(d.summary ? renderSummary(d.summary, true) : [h("h2", { class: "heading", text: "Final plan" }), renderPlan(d.plan)]));
+          if (d.summary && !state.celebrated) { state.celebrated = true; celebrate(); }
+        }
       }
       async function refresh() { paint(await api("/trips/" + TRIP + "/me?u=" + encodeURIComponent(UID))); }
       paint(first);
