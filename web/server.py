@@ -298,8 +298,8 @@ def run_plan(tid):
         add_log(tid, 3, "coordinator", "all", "decision", "Planning paused because nobody answered in time. Start it again when ready.", sleep=False)
         set_state(tid, status="gathering", pending=None)
     except Exception:
-        if (load_trip(tid) or {}).get("status") == "cancelled":
-            return  # the organizer cancelled the trip while the agents were working
+        if (load_trip(tid) or {}).get("status", "cancelled") == "cancelled":
+            return  # the organizer cancelled or deleted the trip while the agents were working
         traceback.print_exc()
         add_log(tid, 3, "coordinator", "all", "decision", f"Planning stopped: {sys.exc_info()[1]}", sleep=False)
         set_state(tid, status="gathering", pending=None)
