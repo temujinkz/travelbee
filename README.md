@@ -6,6 +6,10 @@ Each traveler fills in a short questionnaire. From then on an **Advocate** agent
 
 Built in one day at **"Hive Mind: Building Agent Teams"** (cognee, San Francisco, November 14 2026).
 
+<a href="docs/Travelbee-slides.pdf"><img src="docs/screenshots/slides-cover.png" width="560" alt="Travelbee slides"></a>
+
+**[The slides we presented (PDF, 7 pages)](docs/Travelbee-slides.pdf):** the problem, what we built, and why we chose memory (Cognee), the room (Band), the ranking (Superlinked) and the search (Keenable).
+
 | | |
 |:---:|:---:|
 | ![Questionnaire](docs/screenshots/questionnaire.png) | ![Final plan](docs/screenshots/final-plan.png) |
@@ -259,7 +263,7 @@ p2cli.py             Command line the live Band Advocates use for memory and vot
 agents/              Live Band Advocates (Claude + Cognee), memory seeding, graph viewer
 band/                Instructions for the Band Advocates
 web/                 Web app: server.py, bridge.py, index.html
-docs/screenshots/    Screenshots in this README
+docs/                The slides we presented (Travelbee-slides.pdf) and the screenshots in this README
 TEAM_SPLIT.md        The plan we split the work with at the hackathon
 ```
 
