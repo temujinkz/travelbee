@@ -357,6 +357,9 @@
     .confetti span { position: absolute; top: -30px; font-size: 22px; animation: fall 2.6s ease-in forwards; }
     @keyframes fall { to { transform: translateY(110vh) rotate(540deg); opacity: .2; } }
     @media (prefers-reduced-motion: reduce) { .confetti { display: none; } }
+    .trip-row { display: flex; align-items: center; gap: 8px; }
+    .trip-row .trip-link { flex: 1; min-width: 0; }
+    .trip-del { flex: none; font-size: 13px; color: var(--text-2); }
     .person-wrap .detail { margin: 6px 4px 0; color: var(--text-2); font-size: 12px; }
   </style>
 </head>
@@ -491,10 +494,19 @@
       if (!rows.length) return;
       box.append(card([
         h("h2", { class: "heading", text: "Your trips" }),
-        h("ul", { class: "rows" }, rows.map(({ e, t, who }) => h("li", {},
+        h("ul", { class: "rows" }, rows.map(({ e, t, who }) => h("li", { class: "trip-row" },
           h("a", { class: "trip-link", href: entryLink(e) },
             h("span", {}, h("span", { class: "who", text: t.destination || "Untitled trip" }), h("span", { class: "badge", text: who })),
-            h("span", { class: "sub", text: t.start && t.end ? fmtDay(t.start) + " to " + fmtDay(t.end) : t.member_count + (t.member_count === 1 ? " traveler" : " travelers") }))))),
+            h("span", { class: "sub", text: t.start && t.end ? fmtDay(t.start) + " to " + fmtDay(t.end) : t.member_count + (t.member_count === 1 ? " traveler" : " travelers") })),
+          h("button", { class: "textlink trip-del", type: "button", text: e.role === "organizer" ? "Delete" : "Remove",
+            "aria-label": (e.role === "organizer" ? "Delete " : "Remove ") + (t.destination || "this trip"),
+            onclick: async () => {
+              if (e.role === "organizer") {
+                if (!confirm("Delete " + (t.destination || "this trip") + " for everyone?")) return;
+                try { await api("/trips/" + e.id + "/delete?admin=" + encodeURIComponent(e.secret), {}); } catch (err) { if (err.status !== 404) { announce(err.message); return; } }
+              }
+              forget(e.id, e.role); renderTrips();
+            } })))),
       ]));
     }
 
